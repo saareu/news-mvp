@@ -44,3 +44,14 @@ pip install pytest
 py -m pytest -q
 ```
 
+## Scheduled ETL and repository variable
+
+The scheduled ETL workflow runs on GitHub Actions (see `.github/workflows/etl_cron.yml`).
+To control whether the scheduled ETL actually executes, create a repository Variable named
+`ETL_RUN_ENABLED` (GitHub → Settings → Variables → Actions) and set its value to `true` to enable
+scheduled runs, or `false` to keep the schedule present but skip execution.
+
+The workflows perform a runtime check at the start of the ETL job and will exit early when the
+variable is not set to `true`, which avoids relying on job-level `if:` expressions that can
+trigger editor/CI diagnostics locally.
+

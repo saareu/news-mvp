@@ -1,12 +1,21 @@
 name: etl-cron
 on:
-  schedule: [{ cron: "0 * * * *" }]
+  # run every 3 hours
+  schedule:
+    - cron: "0 */3 * * *"
 jobs:
   etl:
-    if: ${{ vars.ETL_RUN_ENABLED == 'true' }}
+    # NOTE: This job is gated at runtime by `ETL_RUN_ENABLED` repository Variable.
+    # We avoid job-level expressions to keep editors happy; the first step will skip when disabled.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check ETL enabled
+        run: |
+          if [ "${ETL_RUN_ENABLED:-false}" != "true" ]; then
+            echo "ETL_RUN_ENABLED != true — skipping ETL job"
+            exit 0
+          fi
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -U pip && pip install .

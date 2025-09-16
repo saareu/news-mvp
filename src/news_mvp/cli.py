@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from news_mvp.settings import Settings
 from news_mvp.logging_setup import get_logger
 from news_mvp.paths import Paths
-from rich import print as rich_print
 
 console = Console()
 log = get_logger("news_mvp")
@@ -38,15 +37,13 @@ def health(
     ctx: typer.Context,
     dry_run: bool = typer.Option(None, "--dry-run", help="Plan actions without making changes."),
 ):
-    dr = _effective_dry_run(ctx, dry_run)
-    console.print({"ok": True, "dry_run": dr})
+    console.print({"ok": True, "dry_run": _effective_dry_run(ctx, dry_run)})
 
 @app.command()
 def bootstrap(
     ctx: typer.Context,
     dry_run: bool = typer.Option(None, "--dry-run", help="Plan actions without making changes."),
 ):
-    dr = _effective_dry_run(ctx, dry_run)
     for p in Paths.ensure_all():
         console.print(f"ensured: {p}")
 
@@ -116,7 +113,10 @@ def etl_run_all(env: str = "dev", dry_run: bool = False):
         raise SystemExit(0)
     from news_mvp.etl.api import run_etl_for_source
     for src in s.etl.sources:
-        run_etl_for_source(source=src, rss_url=s.etl.sources[src].rss)
+        rss = s.etl.sources[src].rss
+        if rss is None:
+            raise typer.BadParameter(f"No RSS configured for source '{src}'")
+        run_etl_for_source(source=src, rss_url=rss)
 
 
 @etl_app.command("parquetify")
@@ -130,7 +130,7 @@ def parquetify(source: str, env: str = "dev"):
     for _ in Paths.ensure_all():
         pass
     raw_dir = Path("data/raw")/source
-    out_base = Path("data/raw")/f"source={source}"/f"date="
+    out_base = Path("data/raw") / f"source={source}" / "date="
     for csv in raw_dir.rglob("*.csv"):
         date = csv.stat().st_mtime
         date_str = __import__("datetime").datetime.fromtimestamp(date).strftime("%Y-%m-%d")
