@@ -156,6 +156,12 @@ data/canonical/*/*.json
 # Allow enhancement selectors for scraping in CI
 !schema/selectors.csv
 
+# Allow master CSV files for review
+!data/master/master_*.csv
+
+# Allow pics directory for review
+!data/pics/
+
 # But allow specific important CSV files if needed
 !requirements.txt
 

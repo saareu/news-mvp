@@ -9,6 +9,10 @@ build/
 .data/
 artifacts/
 data/
+# But allow master CSV files for review
+!data/master/master_*.csv
+# And allow pics for review
+!data/pics/
 logs/
 models/
 metrics/
