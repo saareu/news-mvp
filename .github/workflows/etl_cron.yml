@@ -3,6 +3,8 @@ on:
   # run every 3 hours
   schedule:
     - cron: "0 */3 * * *"
+  # allow manual triggering for testing
+  workflow_dispatch:
 jobs:
   etl:
     # NOTE: This job is gated at runtime by `ETL_RUN_ENABLED` repository Variable.
