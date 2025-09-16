@@ -108,16 +108,25 @@ def orchestrate(
     working_directory = str(
         project_root.resolve()
     )  # Ensure absolute path for subprocess
-    mapping_path = (
-        str(project_root / s.etl.etl_schema.mapping_csv)
+    # Compute mapping/selectors paths and ensure they are absolute paths
+    raw_mapping = (
+        str(s.etl.etl_schema.mapping_csv)
         if hasattr(s.etl, "etl_schema")
-        else str(project_root / "src/news_mvp/etl/schema/mapping.csv")
+        else "src/news_mvp/etl/schema/mapping.csv"
     )
-    selectors_path = (
-        str(project_root / s.etl.etl_schema.selectors_csv)
+    raw_selectors = (
+        str(s.etl.etl_schema.selectors_csv)
         if hasattr(s.etl, "etl_schema")
-        else str(project_root / "src/news_mvp/etl/schema/selectors.csv")
+        else "src/news_mvp/etl/schema/selectors.csv"
     )
+
+    # If the configured path is relative, resolve it against project_root
+    def _abs_path(p: str) -> str:
+        pth = Path(p)
+        return str((project_root / p).resolve()) if not pth.is_absolute() else str(pth)
+
+    mapping_path = _abs_path(raw_mapping)
+    selectors_path = _abs_path(raw_selectors)
 
     for idx, step in enumerate(STEPS, start=1):
         print(f"STEP {idx}/{len(STEPS)} -> {step} (current_input={current_input})")
