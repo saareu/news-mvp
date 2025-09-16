@@ -151,10 +151,10 @@ data/canonical/*/*.json
 *.json
 
 # But allow the canonical mapping used by CI canonization
-!etl/schema/mapping.csv
+!schema/mapping.csv
 
 # Allow enhancement selectors for scraping in CI
-!etl/enhance/selectors.csv
+!schema/selectors.csv
 
 # But allow specific important CSV files if needed
 !requirements.txt
