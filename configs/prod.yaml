@@ -4,3 +4,7 @@ logging:
   level: WARNING
 etl:
   dry_run: false
+ingest:
+  # Larger batch size for production environment
+  batch_size: 2000
+  parallel_workers: 4

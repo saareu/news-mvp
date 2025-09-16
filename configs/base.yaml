@@ -28,3 +28,10 @@ etl:
   behavior:
     download_images: true
     merge_after_all_sources: true
+
+# Ingest configuration
+ingest:
+  # Input glob that matches the ETL outputs from parquetify command
+  input_glob: "data/raw/source=*/date=*/part-*.parquet"
+  batch_size: 1000
+  parallel_workers: 2

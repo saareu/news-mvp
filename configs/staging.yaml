@@ -4,3 +4,7 @@ logging:
   level: INFO
 etl:
   dry_run: false
+ingest:
+  # Medium batch size for staging environment
+  batch_size: 500
+  parallel_workers: 2
