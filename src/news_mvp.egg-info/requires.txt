@@ -1,0 +1,7 @@
+pydantic>=2.7
+pyyaml>=6.0
+click>=8.1
+rich>=13.7
+python-dotenv>=1.0
+pandas>=2.2
+pyarrow>=17.0

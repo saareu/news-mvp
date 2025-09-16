@@ -1,0 +1,6 @@
+app:
+  env: prod
+logging:
+  level: WARNING
+etl:
+  dry_run: false

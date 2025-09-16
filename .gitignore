@@ -1,0 +1,15 @@
+.venv/
+.env
+__pycache__/
+*.log
+*.pyc
+dist/
+build/
+.eggs/
+.data/
+artifacts/
+data/
+logs/
+models/
+metrics/
+.ipynb_checkpoints/

@@ -1,0 +1,6 @@
+app:
+  env: staging
+logging:
+  level: INFO
+etl:
+  dry_run: false

@@ -1,0 +1,15 @@
+# Base config (merged by env-specific files)
+app:
+  name: news-mvp
+  env: base
+logging:
+  level: INFO
+paths:
+  data_root: data
+  raw: data/raw
+  canonical: data/canonical
+  master: data/master
+  pics: data/pics
+etl:
+  enabled: true
+  dry_run: false

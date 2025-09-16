@@ -1,0 +1,7 @@
+# Dev overrides
+app:
+  env: dev
+logging:
+  level: DEBUG
+etl:
+  dry_run: true

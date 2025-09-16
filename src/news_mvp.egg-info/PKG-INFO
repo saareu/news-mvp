@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: news-mvp
+Version: 0.1.0
+Summary: Unified news MVP with ETL
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.7
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: click>=8.1
+Requires-Dist: rich>=13.7
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: pandas>=2.2
+Requires-Dist: pyarrow>=17.0
+
+# news-mvp
+
+Quick start:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -U pip
+pip install -e .
+Copy-Item .env.example .env
+news-mvp --dry-run
+news-mvp bootstrap
+python scripts\print_config.py
+
