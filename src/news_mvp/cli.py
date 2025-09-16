@@ -7,11 +7,10 @@ import typer
 from rich.console import Console
 from dotenv import load_dotenv
 from news_mvp.settings import Settings
-from news_mvp.logging_setup import get_logger
+from news_mvp.logging_setup import configure_logging, get_logger
 from news_mvp.paths import Paths
 
 console = Console()
-log = get_logger("news_mvp")
 
 app = typer.Typer()
 
@@ -27,7 +26,16 @@ def main(
     ctx.ensure_object(dict)
     ctx.obj["DRY_RUN"] = dry_run
     cfg_path = os.getenv("NEWS_MVP_CONFIG", "configs/dev.yaml")
-    ctx.obj["SETTINGS"] = Settings.load(cfg_path)
+    settings = Settings.load(cfg_path)
+    ctx.obj["SETTINGS"] = settings
+
+    # Configure structured logging based on settings
+    configure_logging(
+        level=settings.logging.level,
+        format_type=settings.logging.format,
+        structured=settings.logging.structured,
+    )
+
     if ctx.invoked_subcommand is None:
         console.print(
             f"[bold cyan]news-mvp[/] loaded config: {cfg_path}, dry_run={dry_run}"
@@ -77,12 +85,22 @@ def etl_run(
 ):
     cfg_path = f"configs/{env}.yaml"
     s = Settings.load(cfg_path)  # load settings for source/rss lookup
-    log = get_logger()
+
+    # Configure logging with settings
+    configure_logging(
+        level=s.logging.level,
+        format_type=s.logging.format,
+        structured=s.logging.structured,
+    )
+    log = get_logger("etl.run")
+
     for p in Paths.ensure_all():
-        log.info(f"ensured: {p}")
+        log.info("Directory ensured", path=str(p))
+
     if dry_run:
-        log.info("etl.skip", extra={"reason": "dry-run", "source": source})
+        log.info("ETL run skipped", reason="dry-run", source=source)
         raise SystemExit(0)
+
     # Call the merged ETL API
     from news_mvp.etl.api import run_etl_for_source
 
@@ -91,6 +109,8 @@ def etl_run(
         raise typer.BadParameter(
             f"No RSS configured for source '{source}' and no --rss provided"
         )
+
+    log.info("Starting ETL run", source=source, rss_url=rss_url)
     run_etl_for_source(source=source, rss_url=rss_url)
 
 
@@ -103,23 +123,31 @@ def etl_merge(
 
     cfg_path = f"configs/{env}.yaml"
     s = Settings.load(cfg_path)
-    log = get_logger()
+
+    configure_logging(
+        level=s.logging.level,
+        format_type=s.logging.format,
+        structured=s.logging.structured,
+    )
+    log = get_logger("etl.merge")
+
     for p in Paths.ensure_all():
-        log.info(f"ensured: {p}")
+        log.info("Directory ensured", path=str(p))
+
     # Use config-driven data dir (from Paths utility)
     masters = sorted(Path(Paths.data_root(), "master").glob("master_*.csv"))
+
     # Support runtime.dry_run
     if getattr(s, "runtime", None) and (
         dry_run or getattr(s.runtime, "dry_run", False)
     ):
-        log.info(
-            "merge.skip",
-            extra={"reason": "dry-run", "inputs": [str(p) for p in masters]},
-        )
+        log.info("Merge skipped", reason="dry-run", inputs=[str(p) for p in masters])
         raise SystemExit(0)
+
     from news_mvp.etl.api import merge_masters
 
     output_csv = str(Path(Paths.data_root(), "master", "master_news.csv"))
+    log.info("Starting merge", inputs=[str(p) for p in masters], output=output_csv)
     merge_masters([str(p) for p in masters], output_csv=output_csv)
 
 
@@ -135,21 +163,31 @@ def etl_list_sources(env: str = "dev"):
 def etl_run_all(env: str = "dev", dry_run: bool = False):
     cfg_path = f"configs/{env}.yaml"
     s = Settings.load(cfg_path)
-    log = get_logger()
+
+    configure_logging(
+        level=s.logging.level,
+        format_type=s.logging.format,
+        structured=s.logging.structured,
+    )
+    log = get_logger("etl.run_all")
+
     for p in Paths.ensure_all():
-        log.info(f"ensured: {p}")
+        log.info("Directory ensured", path=str(p))
+
     if dry_run:
         log.info(
-            "etl.skip",
-            extra={"reason": "dry-run", "sources": list(s.etl.sources.keys())},
+            "ETL run-all skipped", reason="dry-run", sources=list(s.etl.sources.keys())
         )
         raise SystemExit(0)
+
     from news_mvp.etl.api import run_etl_for_source
 
+    log.info("Starting ETL for all sources", sources=list(s.etl.sources.keys()))
     for src in s.etl.sources:
         rss = s.etl.sources[src].rss
         if rss is None:
             raise typer.BadParameter(f"No RSS configured for source '{src}'")
+        log.info("Processing source", source=src, rss_url=rss)
         run_etl_for_source(source=src, rss_url=rss)
 
 

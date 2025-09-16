@@ -32,7 +32,15 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from typing import Any
 
-LOG = logging.getLogger("enhancer_by_source")
+# Graceful imports for structured logging
+try:
+    from news_mvp.logging_setup import get_logger
+
+    LOG = get_logger("enhancer_by_source")
+except ImportError:
+    import logging
+
+    LOG = logging.getLogger("enhancer_by_source")
 
 
 def load_selectors(path: Path) -> Dict[str, Dict[str, Optional[str]]]:

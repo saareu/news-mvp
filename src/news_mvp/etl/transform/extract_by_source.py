@@ -93,8 +93,9 @@ from news_mvp.etl.extract import fetch_rss_bytes
 from news_mvp.etl.transform import xml_to_json
 from news_mvp.etl.transform import json_to_csv
 from news_mvp.etl.transform.postprocess_csv import postprocess_csv
+from news_mvp.logging_setup import get_logger
 
-LOG = logging.getLogger("extract_by_source")
+LOG = get_logger("extract_by_source")
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -167,7 +168,7 @@ def run_pipeline_for_source(
     # Create output directory
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    LOG.info("Fetching %s -> %s", source, rss_url)
+    LOG.info("Starting ETL extract", source=source, rss_url=rss_url)
     raw_bytes = fetch_rss_bytes(rss_url, timeout=timeout, user_agent=user_agent)
 
     # Use provided timestamp or generate a new one
@@ -179,14 +180,18 @@ def run_pipeline_for_source(
     with open(xml_path, "wb") as fh:
         fh.write(raw_bytes)
 
-    LOG.info("Saved raw XML -> %s", xml_path)
+    LOG.info("Saved raw XML", path=str(xml_path), size_bytes=len(raw_bytes))
 
     # Convert XML -> JSON (in-memory), then write JSON file next to XML
     data = xml_to_json.xml_file_to_json(xml_path)
     json_path = xml_path.with_suffix(".json")
     with open(json_path, "w", encoding="utf-8-sig") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
-    LOG.info("Wrote JSON -> %s", json_path)
+    LOG.info(
+        "Wrote JSON",
+        path=str(json_path),
+        items_count=len(data) if isinstance(data, (list, dict)) else 0,
+    )
 
     # Extract items for CSV
     # xml_file_to_json returns {root_tag: {...}} so find_items expects that root mapping's value
@@ -197,12 +202,12 @@ def run_pipeline_for_source(
 
     csv_path = xml_path.with_suffix(".csv")
     json_to_csv.json_items_to_csv(items, csv_path)
-    LOG.info("Wrote CSV -> %s", csv_path)
+    LOG.info("Wrote CSV", path=str(csv_path), rows_count=len(items))
 
     if do_postprocess:
         # Use the canonical postprocessor (includes parsing heuristics and reporting)
         postprocess_csv(csv_path)
-        LOG.info("Post-processed CSV -> %s", csv_path)
+        LOG.info("Post-processed CSV", path=str(csv_path))
 
     return csv_path
 

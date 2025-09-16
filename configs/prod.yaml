@@ -2,6 +2,8 @@ app:
   env: prod
 logging:
   level: WARNING
+  format: json
+  structured: true
 etl:
   dry_run: false
 ingest:

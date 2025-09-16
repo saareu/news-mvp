@@ -11,6 +11,12 @@ class RuntimeConfig(BaseModel):
     dry_run: bool = False
 
 
+class LoggingConfig(BaseModel):
+    level: str = "INFO"
+    format: str = "json"  # "json" or "human"
+    structured: bool = True
+
+
 class IngestConfig(BaseModel):
     input_glob: str = "data/raw/source=*/date=*/part-*.parquet"
     batch_size: int = 1000
@@ -51,6 +57,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
     etl: EtlCfg
     runtime: RuntimeConfig = RuntimeConfig()
+    logging: LoggingConfig = LoggingConfig()
     ingest: IngestConfig = IngestConfig()
 
     @staticmethod

@@ -4,6 +4,8 @@ app:
   env: base
 logging:
   level: INFO
+  format: json
+  structured: true
 paths:
   data_root: data
   raw: data/raw
