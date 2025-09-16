@@ -74,20 +74,24 @@ def orchestrate(
 
     # Load mapping path from config
     from news_mvp.settings import Settings
+    from news_mvp.paths import Paths
     import os
 
     env = os.environ.get("NEWS_MVP_CONFIG_ENV", "dev")
     cfg_path = f"configs/{env}.yaml"
     s = Settings.load(cfg_path)
+
+    # Resolve paths relative to project root
+    project_root = Paths.root()
     mapping_path = (
-        s.etl.etl_schema.mapping_csv
+        str(project_root / s.etl.etl_schema.mapping_csv)
         if hasattr(s.etl, "etl_schema")
-        else "etl/schema/mapping.csv"
+        else str(project_root / "etl/schema/mapping.csv")
     )
     selectors_path = (
-        s.etl.etl_schema.selectors_csv
+        str(project_root / s.etl.etl_schema.selectors_csv)
         if hasattr(s.etl, "etl_schema")
-        else "etl/schema/selectors.csv"
+        else str(project_root / "etl/schema/selectors.csv")
     )
 
     for idx, step in enumerate(STEPS, start=1):

@@ -29,7 +29,14 @@ import yaml
 
 
 def _default_base_dir():
-    return Path(__file__).resolve().parents[1]
+    # Use the Paths class for consistent path resolution
+    try:
+        from news_mvp.paths import Paths
+
+        return Paths.root()
+    except ImportError:
+        # Fallback to old behavior if Paths is not available
+        return Path(__file__).resolve().parents[1]
 
 
 def _load_yaml_config(path):
@@ -52,7 +59,15 @@ def _get(key, default):
 
 
 BASE_DIR = Path(_get("BASE_DIR", _default_base_dir()))
-DATA_DIR = Path(_get("DATA_DIR", BASE_DIR / "data"))
+
+# Use the Paths class for data directory if available
+try:
+    from news_mvp.paths import Paths
+
+    DATA_DIR = Path(_get("DATA_DIR", Paths.data_root()))
+except ImportError:
+    DATA_DIR = Path(_get("DATA_DIR", BASE_DIR / "data"))
+
 RAW_DIR = Path(_get("RAW_DIR", DATA_DIR / "raw"))
 RAW_YNET_DIR = Path(_get("RAW_YNET_DIR", RAW_DIR / "ynet"))
 RAW_HAYOM_DIR = Path(_get("RAW_HAYOM_DIR", RAW_DIR / "hayom"))
