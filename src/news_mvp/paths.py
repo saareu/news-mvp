@@ -1,14 +1,28 @@
+import os
 from pathlib import Path
 
 
 class Paths:
     @staticmethod
     def root() -> Path:
-        return Path(".")
+        """Get the project root directory.
+
+        Can be overridden with NEWS_MVP_ROOT environment variable.
+        Defaults to current working directory.
+        """
+        return Path(os.getenv("NEWS_MVP_ROOT", "."))
 
     @staticmethod
     def data_root() -> Path:
-        return Path("data")
+        """Get the data directory root.
+
+        Can be overridden with NEWS_MVP_DATA_ROOT environment variable.
+        Defaults to 'data' relative to project root.
+        """
+        data_root_env = os.getenv("NEWS_MVP_DATA_ROOT")
+        if data_root_env:
+            return Path(data_root_env)
+        return Paths.root() / "data"
 
     @staticmethod
     def raw() -> Path:

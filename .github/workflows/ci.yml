@@ -50,4 +50,6 @@ jobs:
       - run: ruff check src
       - run: pyright
       - run: pytest -q
-      - run: python -m news_mvp.cli etl run --source ynet --env prod
+      - name: Run ETL from workspace directory
+        working-directory: ${{ github.workspace }}
+        run: python -m news_mvp.cli etl run --source ynet --env prod

@@ -22,6 +22,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -U pip && pip install .
       - name: Run ETL (prod)
+        working-directory: ${{ github.workspace }}
         run: |
           python -m news_mvp.cli etl run --source ynet --env prod
           python -m news_mvp.cli etl run --source hayom --env prod
