@@ -8,14 +8,14 @@ Workflow per source:
 
 The merge_by_source step is NOT run here; it should be run separately after all sources, as in the CI workflow.
 
-Each step is called as a Python module (e.g. `py -m etl.extract.extract_by_source ...`).
+Each step is called as a Python module (e.g. `py -m news_mvp.etl.extract.extract_by_source ...`).
 The script captures each step's final printed line (expected to be the output CSV relative path)
 and passes it as the input of the next step.
 
 Designed to be non-interactive and CI-friendly (GitHub Actions): prints the final merged master at the end.
 
 for israel hayom, use:
-    py -m etl.pipelines.etl_by_source --source hayom --rss https://www.hayom.co.il/rss/news.xml --force-tz-offset 3
+    py -m news_mvp.etl.pipelines.etl_by_source --source hayom --rss https://www.hayom.co.il/rss/news.xml --force-tz-offset 3
 """
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ from typing import List, Optional
 
 
 STEPS = [
-    "etl.transform.extract_by_source",
-    "etl.transform.expand_by_source",
-    "etl.transform.canonized_by_source",
-    "etl.load.create_csv_to_load_by_source",
-    "etl.load.enhancer_by_source",
-    "etl.pipelines.download_images",
-    "etl.load.load_by_source",
+    "news_mvp.etl.transform.extract_by_source",
+    "news_mvp.etl.transform.expand_by_source",
+    "news_mvp.etl.transform.canonized_by_source",
+    "news_mvp.etl.load.create_csv_to_load_by_source",
+    "news_mvp.etl.load.enhancer_by_source",
+    "news_mvp.etl.pipelines.download_images",
+    "news_mvp.etl.load.load_by_source",
 ]
 
 
@@ -63,10 +63,19 @@ def orchestrate(
     current_input = None
     # steps that shouldn't fail the whole pipeline; we'll continue with previous input
     soft_fail_steps = {
-        "etl.load.enhancer_by_source",
-        "etl.pipelines.download_images",
+        "news_mvp.etl.load.enhancer_by_source",
+        "news_mvp.etl.pipelines.download_images",
     }
 
+
+    # Load mapping path from config
+    from news_mvp.settings import Settings
+    import os
+    env = os.environ.get("NEWS_MVP_CONFIG_ENV", "dev")
+    cfg_path = f"configs/{env}.yaml"
+    s = Settings.load(cfg_path)
+    mapping_path = s.etl.etl_schema.mapping_csv if hasattr(s.etl, 'etl_schema') else "etl/schema/mapping.csv"
+    selectors_path = s.etl.etl_schema.selectors_csv if hasattr(s.etl, 'etl_schema') else "etl/schema/selectors.csv"
 
     for idx, step in enumerate(STEPS, start=1):
         print(f"STEP {idx}/{len(STEPS)} -> {step} (current_input={current_input})")
@@ -74,37 +83,36 @@ def orchestrate(
 
         out_path = None
         # Build per-step arguments explicitly to avoid quoting issues and to supply required --output
-        if step == "etl.transform.extract_by_source":
+        if step == "news_mvp.etl.transform.extract_by_source":
             args.extend(["--source", source, "--rss-url", rss])
-        elif step == "etl.transform.expand_by_source":
+        elif step == "news_mvp.etl.transform.expand_by_source":
             if not current_input:
                 raise RuntimeError("expand_by_source requires an input path from a previous step")
             in_p = Path(current_input)
             out_p = in_p.with_name(f"{in_p.stem}_expanded.csv")
             args.extend(["--input", str(in_p), "--output", str(out_p)])
             out_path = str(out_p)
-        elif step == "etl.transform.canonized_by_source":
+        elif step == "news_mvp.etl.transform.canonized_by_source":
             if not current_input:
                 raise RuntimeError("canonized_by_source requires an input path from a previous step")
             in_p = Path(current_input)
-            # place canonical output under CANON_DIR/{source}/<stem>_canonical.csv
-            from etl.config import CANON_DIR
+            from news_mvp.etl.config import CANON_DIR
             can_dir = CANON_DIR / source
             can_dir.mkdir(parents=True, exist_ok=True)
             out_p = can_dir / f"{in_p.stem}_canonical.csv"
-            args.extend(["--input", str(in_p), "--output", str(out_p)])
+            args.extend(["--input", str(in_p), "--output", str(out_p), "--mapping", mapping_path])
             if force_tz_offset is not None:
                 args.extend(["--force-tz-offset", str(force_tz_offset)])
             out_path = str(out_p)
-        elif step == "etl.load.create_csv_to_load_by_source":
+        elif step == "news_mvp.etl.load.create_csv_to_load_by_source":
             if not current_input:
                 raise RuntimeError("create_csv_to_load_by_source requires an input path from a previous step")
             args.extend(["--input", str(current_input)])
-        elif step == "etl.load.enhancer_by_source":
+        elif step == "news_mvp.etl.load.enhancer_by_source":
             if not current_input:
                 raise RuntimeError("enhancer_by_source requires an input path from a previous step")
-            args.extend(["--input", str(current_input)])
-        elif step == "etl.pipelines.download_images":
+            args.extend(["--input", str(current_input), "--selectors", selectors_path])
+        elif step == "news_mvp.etl.pipelines.download_images":
             if not current_input:
                 raise RuntimeError("download_images requires an input path from a previous step")
             args.extend(["--input", str(current_input)])
@@ -112,7 +120,7 @@ def orchestrate(
                 args.append("--async")
             if download_concurrency:
                 args.extend(["--concurrency", str(download_concurrency)])
-        elif step == "etl.load.load_by_source":
+        elif step == "news_mvp.etl.load.load_by_source":
             if not current_input:
                 raise RuntimeError("load_by_source requires an input path from a previous step")
             args.extend(["--input", str(current_input)])

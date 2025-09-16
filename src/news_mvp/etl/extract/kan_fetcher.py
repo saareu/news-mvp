@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 
-from etl.config import BASE_DIR
+from news_mvp.etl.config import BASE_DIR
 
 LOG = logging.getLogger("kan_fetcher")
 

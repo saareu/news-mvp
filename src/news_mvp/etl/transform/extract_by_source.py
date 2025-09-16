@@ -93,12 +93,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from etl.extract import fetch_rss_bytes
-from etl.config import RAW_DIR
+from news_mvp.etl.extract import fetch_rss_bytes
+from news_mvp.etl.config import RAW_DIR
 
-from etl.transform import xml_to_json
-from etl.transform import json_to_csv
-from etl.transform.postprocess_csv import postprocess_csv
+from news_mvp.etl.transform import xml_to_json
+from news_mvp.etl.transform import json_to_csv
+from news_mvp.etl.transform.postprocess_csv import postprocess_csv
 
 LOG = logging.getLogger("extract_by_source")
 
@@ -143,7 +143,7 @@ def run_pipeline_for_source(source: str, rss_url: str, out_dir: Path | None = No
     # Create a standard output directory if not provided
     if out_dir is None:
         # Always create a directory under raw/
-        from etl.config import RAW_DIR
+        from news_mvp.etl.config import RAW_DIR
         out_dir = RAW_DIR / source.lower()
     
     # Create output directory

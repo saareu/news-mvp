@@ -1,0 +1,18 @@
+name: etl-cron
+on:
+  schedule: [{ cron: "0 * * * *" }]
+jobs:
+  etl:
+    if: ${{ vars.ETL_RUN_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -U pip && pip install .
+      - name: Run ETL (prod)
+        run: |
+          python -m news_mvp.cli etl run --source ynet --env prod
+          python -m news_mvp.cli etl run --source hayom --env prod
+          python -m news_mvp.cli etl run --source haaretz --env prod
+          python -m news_mvp.cli etl merge --env prod

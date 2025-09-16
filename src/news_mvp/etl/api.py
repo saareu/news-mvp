@@ -4,7 +4,7 @@ ETL Python API
 Import this module to use the ETL pipeline as a library from other Python code or projects.
 
 Example usage:
-    from etl.api import run_etl_for_source, merge_masters, download_images_for_csv
+    from news_mvp.etl.api import run_etl_for_source, merge_masters, download_images_for_csv
     run_etl_for_source(source="ynet", rss_url="...")
     merge_masters(["data/master/master_ynet.csv", ...])
     download_images_for_csv("data/canonical/ynet/ynet_..._canonical_enhanced.csv")
@@ -17,7 +17,7 @@ import sys
 
 def run_etl_for_source(source: str, rss_url: str, force_tz_offset: Optional[int] = None, timeout: int = 600, retries: int = 1) -> int:
     """Run the full ETL pipeline for a given source."""
-    args = [sys.executable, "-m", "etl.pipelines.etl_by_source", "--source", source, "--rss", rss_url, "--timeout", str(timeout), "--retries", str(retries)]
+    args = [sys.executable, "-m", "news_mvp.etl.pipelines.etl_by_source", "--source", source, "--rss", rss_url, "--timeout", str(timeout), "--retries", str(retries)]
     if force_tz_offset is not None:
         args += ["--force-tz-offset", str(force_tz_offset)]
     return subprocess.call(args)
@@ -25,7 +25,7 @@ def run_etl_for_source(source: str, rss_url: str, force_tz_offset: Optional[int]
 
 def merge_masters(source_csvs: List[str], output_csv: Optional[str] = None) -> int:
     """Merge multiple master CSVs into a unified master CSV."""
-    args = [sys.executable, "-m", "etl.load.merge_by_source", "--source"] + source_csvs
+    args = [sys.executable, "-m", "news_mvp.etl.load.merge_by_source", "--source"] + source_csvs
     if output_csv:
         args += ["--master", output_csv]
     return subprocess.call(args)

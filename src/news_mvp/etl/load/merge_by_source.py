@@ -22,7 +22,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
-from etl.config import MASTER_NEWS_CSV
+from news_mvp.etl.config import MASTER_NEWS_CSV
 
 
 def read_csv(path: str) -> List[Dict[str, str]]:

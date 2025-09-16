@@ -13,3 +13,18 @@ paths:
 etl:
   enabled: true
   dry_run: false
+  sources:
+    ynet: { rss: "https://www.ynet.co.il/Integration/StoryRss2.xml", force_tz_offset: null }
+    hayom: { rss: "https://www.israelhayom.co.il/rss.xml", force_tz_offset: 3 }
+    haaretz: { rss: "https://www.haaretz.co.il/srv/htz---all-articles", force_tz_offset: null }
+  etl_schema:
+    mapping_csv: "src/news_mvp/etl/schema/mapping.csv"
+    selectors_csv: "src/news_mvp/etl/schema/selectors.csv"
+  output:
+    raw_pattern: "data/raw/source={source}/date={date}/part-{ts}.csv"
+    canonical_dir: "data/canonical/{source}"
+    master_dir: "data/master"
+    images_dir: "data/pics/{source}"
+  behavior:
+    download_images: true
+    merge_after_all_sources: true

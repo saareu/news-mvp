@@ -13,3 +13,5 @@ health:
 
 clean:
 > rm -rf .venv __pycache__ .pytest_cache *.log data/* logs/* artifacts || true
+etl-smoke:
+	. .venv/Scripts/activate && python -m news_mvp.cli etl run --source ynet --env dev --dry-run

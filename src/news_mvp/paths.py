@@ -19,3 +19,11 @@ class Paths:
         for p in [Paths.data_root(), Paths.raw(), Paths.canonical(), Paths.master(), Paths.pics()]:
             p.mkdir(parents=True, exist_ok=True)
             yield p
+
+
+def ensure_dirs(settings):
+    """Compatibility helper used by tests: ensures dirs and returns list of created paths."""
+    created = []
+    for p in Paths.ensure_all():
+        created.append(p)
+    return created

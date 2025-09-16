@@ -1,0 +1,35 @@
+
+name: ci
+on:
+  push: {}
+  pull_request: {}
+  schedule: [{ cron: "0 * * * *" }]
+env:
+  ETL_RUN_ENABLED: false
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python -V
+      - run: pip install -U pip && pip install .
+      - run: pip install ruff pyright pytest
+      - run: ruff check src
+      - run: pyright
+      - run: pytest -q
+  etl:
+    if: ${{ env.ETL_RUN_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python -V
+      - run: pip install -U pip && pip install .
+      - run: pip install ruff pyright pytest
+      - run: ruff check src
+      - run: pyright
+      - run: pytest -q
+      - run: python -m news_mvp.cli etl run --source ynet --env prod

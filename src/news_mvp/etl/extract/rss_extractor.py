@@ -18,8 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from etl.extract.rss_fetcher import fetch_rss_bytes
-from etl.config import (
+from news_mvp.etl.extract.rss_fetcher import fetch_rss_bytes
+from news_mvp.etl.config import (
     RAW_YNET_DIR,
     RAW_HAYOM_DIR,
     RAW_HAARETZ_DIR,

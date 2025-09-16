@@ -11,3 +11,36 @@ news-mvp --dry-run
 news-mvp bootstrap
 python scripts\print_config.py
 
+## Validator and optional dependencies
+
+The project includes a lightweight CSV validator at `scripts/ge_validate.py` which performs a few basic checks (columns present, not-null, unique id, link regex, parseable pubDate).
+
+To avoid installing heavy dependencies by default, Great Expectations is optional. Install the validation extras like this:
+
+```powershell
+pip install .[validation]
+```
+
+This will install `great_expectations` if you want to use it for more advanced workflows.
+
+### Notes about the validator
+
+- The validator expects columns: `id`, `title`, `link`, `pubDate`.
+- If `link` is missing, it will accept `image` or `imageName` as a fallback and treat it as the `link` value (useful because the ETL writes image paths/urls into those columns).
+- Exit codes: `0` = validation passed, `2` = validation failed.
+
+### Running the validator
+
+```powershell
+py scripts\ge_validate.py data\master\master_news.csv
+```
+
+### Running tests
+
+Install test deps and run:
+
+```powershell
+pip install pytest
+py -m pytest -q
+```
+

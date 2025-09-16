@@ -271,7 +271,7 @@ def build_canonical_rows(
 def main(argv=None) -> int:
 
 
-    from etl.config import CANON_DIR
+    from news_mvp.etl.config import CANON_DIR
     p = argparse.ArgumentParser(description="Map expanded per-source CSV into canonical CSV using etl/schema/mapping.csv. All paths are configurable via etl/config.py and environment/YAML.")
     p.add_argument("--input", required=True, help="Path to expanded input CSV")
     p.add_argument("--output", help=f"Optional output path; if omitted, writes to <CANON_DIR>/{{source}}/<basename>_canonical.csv (default: {CANON_DIR}/{{source}})")
