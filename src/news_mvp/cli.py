@@ -111,6 +111,12 @@ def etl_run(
         )
 
     log.info("Starting ETL run", source=source, rss_url=rss_url)
+
+    # Set environment variable for ETL subprocess
+    import os
+
+    os.environ["NEWS_MVP_CONFIG_ENV"] = env
+
     run_etl_for_source(source=source, rss_url=rss_url)
 
 

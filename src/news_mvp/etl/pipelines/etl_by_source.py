@@ -26,6 +26,10 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 
 STEPS = [
     "news_mvp.etl.transform.extract_by_source",
@@ -39,10 +43,27 @@ STEPS = [
 
 
 def run_cmd(
-    args: List[str], timeout: Optional[int] = None
+    args: List[str], timeout: Optional[int] = None, cwd: Optional[str] = None
 ) -> subprocess.CompletedProcess:
+    log.debug("Running command", args=args, cwd=cwd)
+
+    # Debug: log environment variables
+    import os
+
+    env_vars = {
+        k: v
+        for k, v in os.environ.items()
+        if "NEWS_MVP" in k or "CONFIG" in k or "GITHUB" in k
+    }
+    log.debug("Environment variables", env_vars=env_vars)
+
     return subprocess.run(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -79,19 +100,23 @@ def orchestrate(
 
     env = os.environ.get("NEWS_MVP_CONFIG_ENV", "dev")
     cfg_path = f"configs/{env}.yaml"
+    print(f"DEBUG: Using config environment: {env}, config path: {cfg_path}")
     s = Settings.load(cfg_path)
 
     # Resolve paths relative to project root
     project_root = Paths.root()
+    working_directory = str(
+        project_root.resolve()
+    )  # Ensure absolute path for subprocess
     mapping_path = (
         str(project_root / s.etl.etl_schema.mapping_csv)
         if hasattr(s.etl, "etl_schema")
-        else str(project_root / "etl/schema/mapping.csv")
+        else str(project_root / "src/news_mvp/etl/schema/mapping.csv")
     )
     selectors_path = (
         str(project_root / s.etl.etl_schema.selectors_csv)
         if hasattr(s.etl, "etl_schema")
-        else str(project_root / "etl/schema/selectors.csv")
+        else str(project_root / "src/news_mvp/etl/schema/selectors.csv")
     )
 
     for idx, step in enumerate(STEPS, start=1):
@@ -179,7 +204,7 @@ def orchestrate(
             attempt += 1
             print(f"running (attempt {attempt}/{per_step_retries}): {' '.join(args)}")
             try:
-                proc = run_cmd(args, timeout=per_step_timeout)
+                proc = run_cmd(args, timeout=per_step_timeout, cwd=working_directory)
             except subprocess.TimeoutExpired as ex:
                 print(
                     f"step timed out after {per_step_timeout}s: {' '.join(args)}",

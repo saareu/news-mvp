@@ -290,8 +290,20 @@ def main(argv=None) -> int:
         "--output",
         help=f"Optional output path; if omitted, writes to <CANON_DIR>/{{source}}/<basename>_canonical.csv (default: {CANON_DIR}/{{source}})",
     )
+    # Get the base directory for mapping file
+    try:
+        from news_mvp.paths import Paths
+
+        base_dir = Paths.root()
+    except ImportError:
+        base_dir = Path(__file__).resolve().parents[2]
+
+    default_mapping_path = (
+        base_dir / "src" / "news_mvp" / "etl" / "schema" / "mapping.csv"
+    )
+
     p.add_argument(
-        "--mapping", default="etl/schema/mapping.csv", help="Path to mapping CSV"
+        "--mapping", default=str(default_mapping_path), help="Path to mapping CSV"
     )
     p.add_argument(
         "--force-tz-offset",

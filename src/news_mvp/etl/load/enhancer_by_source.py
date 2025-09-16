@@ -689,8 +689,20 @@ def main(argv=None) -> int:
         description="Enhance unenhanced CSV by scraping missing fields"
     )
     p.add_argument("--input", required=True, help="Path to unenhanced CSV")
+    # Get the base directory for selectors file
+    try:
+        from news_mvp.paths import Paths
+
+        base_dir = Paths.root()
+    except ImportError:
+        base_dir = Path(__file__).resolve().parents[3]
+
+    default_selectors_path = (
+        base_dir / "src" / "news_mvp" / "etl" / "schema" / "selectors.csv"
+    )
+
     p.add_argument(
-        "--selectors", default="etl/enhance/selectors.csv", help="Path to selectors CSV"
+        "--selectors", default=str(default_selectors_path), help="Path to selectors CSV"
     )
     p.add_argument("--max-rows", type=int, help="Limit rows for testing")
     p.add_argument("--delay", type=float, default=0.1, help="Delay between requests")
