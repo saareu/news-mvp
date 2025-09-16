@@ -8,12 +8,17 @@ build/
 .eggs/
 .data/
 artifacts/
-data/
-# But allow master CSV files for review
-!data/master/master_*.csv
-# And allow pics for review
-!data/pics/
 logs/
 models/
 metrics/
 .ipynb_checkpoints/
+
+# Data directory - ignore most but allow specific files
+data/
+!data/master/
+!data/pics/
+# Allow master CSV files
+!data/master/master_*.csv
+!data/master/master_unified.csv
+# Allow all files in pics directory
+!data/pics/**

@@ -131,20 +131,20 @@ dmypy.json
 # ETL specific ignores
 logs/*.log
 logs/*.txt
+
+# Ignore raw and canonical data files (temporary processing files)
 data/raw/*/*.json
 data/raw/*/*.csv
 data/canonical/*/*.csv
 data/canonical/*/*.json
-# data/pics contained downloaded images. We now allow committing them.
-# If repository size becomes an issue, consider Git LFS for this path.
-#! data/pics/*
-!data/pics/
-!data/pics/**
 
-# Allow master CSV files to be committed (needed for Streamlit dashboard)
-# data/master/*.csv  -- COMMENTED OUT to allow master files
+# Allow master CSV files to be committed (needed for review and dashboard)
 !data/master/master_*.csv
 !data/master/master_unified.csv
+
+# Allow pics directory to be committed (article images)
+!data/pics/
+!data/pics/**
 
 # Still ignore other CSV/JSON files in root
 *.csv
