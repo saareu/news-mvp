@@ -1,0 +1,4 @@
+﻿selector,ynet,haaretz,hayom
+author,css:div.authors a,None,None
+category,aria-label=Breadcrumb;list=ul;item=a;include_parent=FALSE,aria=article-breadcrumbs-header;list=ol;item=a;include_parent=FALSE,None
+description,None,"data-testid=""rich-text""","class=""text-content"""

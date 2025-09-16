@@ -1,0 +1,14 @@
+﻿canonical,haaretz,hayom,ynet
+id,None,None,None
+guid,guid,guid,guid
+title,title,title,title
+description,description,description,description_text
+category,None,category,None
+image,enclosure_@url,image,description_img
+imageCaption,None,imageCaption,description_img_title+-+description_img_alt
+imageCredit,None,imageCredit,None
+pubDate,pubDate,pubDate,pubDate
+tags,None,tag,tags
+creator,{http://purl.org/dc/elements/1.1/}creator,{http://purl.org/dc/elements/1.1/}creator,
+source,None,None,None
+language,None,None,None
