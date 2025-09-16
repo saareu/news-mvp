@@ -14,6 +14,7 @@ Behavior:
 Usage:
   py -m etl.load.merge_by_source --source data/canonical/hayom/hayom_..._master.csv --master data/master/master_news.csv
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,7 +60,8 @@ def parse_pubdate(val: Optional[str]) -> float:
 
 def get_id_key(row):
     # Handle BOM-prefixed id field
-    return row.get('id') or row.get('\ufeffid')
+    return row.get("id") or row.get("\ufeffid")
+
 
 def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) -> str:
     if master_path is None:
@@ -70,12 +72,16 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
     Path(master_path).parent.mkdir(parents=True, exist_ok=True)
     all_rows = []
     fieldnames: List[str] = []
-    seen_ids = set()
+    # seen_ids removed (unused); dedup handled by dict below
+
     def safe_print(msg):
         try:
             print(msg)
         except UnicodeEncodeError:
-            print(msg.encode('ascii', errors='replace').decode('ascii', errors='replace'))
+            print(
+                msg.encode("ascii", errors="replace").decode("ascii", errors="replace")
+            )
+
     # Read all source CSVs
     for source_path in source_paths:
         rows = read_csv(source_path)
@@ -92,7 +98,9 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
     master_rows = read_csv(master_path)
     safe_print(f"[merge_by_source] master: {master_path} rows={len(master_rows)}")
     if master_rows:
-        safe_print(f"[merge_by_source] master fieldnames: {list(master_rows[0].keys())}")
+        safe_print(
+            f"[merge_by_source] master fieldnames: {list(master_rows[0].keys())}"
+        )
         safe_print(f"[merge_by_source] master first row: {repr(master_rows[0])}")
     for r in master_rows:
         all_rows.append(r)
@@ -106,7 +114,9 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
         if key is not None:
             deduped[key] = r
     rows = list(deduped.values())
-    safe_print(f"[merge_by_source] after merge: unified master rows={len(rows)} (added {len(rows)-len(master_rows)})")
+    safe_print(
+        f"[merge_by_source] after merge: unified master rows={len(rows)} (added {len(rows)-len(master_rows)})"
+    )
     # Sort by pubDate desc
     rows.sort(key=lambda r: parse_pubdate(r.get("pubDate")), reverse=True)
     write_csv(master_path, rows, fieldnames)
@@ -114,9 +124,20 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Append non-duplicated rows from one or more source masters into a unified master CSV")
-    p.add_argument("--source", nargs='+', required=True, help="Relative path(s) to source master CSV(s)")
-    p.add_argument("--master", required=False, help="Relative path to unified master CSV to append into (default: data/master/master_news.csv)")
+    p = argparse.ArgumentParser(
+        description="Append non-duplicated rows from one or more source masters into a unified master CSV"
+    )
+    p.add_argument(
+        "--source",
+        nargs="+",
+        required=True,
+        help="Relative path(s) to source master CSV(s)",
+    )
+    p.add_argument(
+        "--master",
+        required=False,
+        help="Relative path to unified master CSV to append into (default: data/master/master_news.csv)",
+    )
     args = p.parse_args(argv)
 
     for src in args.source:

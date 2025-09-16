@@ -28,6 +28,12 @@ news-mvp = "news_mvp.cli:app"
 
 [project.optional-dependencies]
 validation = ["great_expectations>=0.18"]
+dev = [
+  "pre-commit>=3.6",
+  "pytest>=8.0",
+  "ruff>=0.3.0",
+  "pyright>=1.1"
+]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]

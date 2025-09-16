@@ -30,7 +30,9 @@ from typing import Dict, List, Tuple, Any, Sequence
 try:
     from bs4 import BeautifulSoup  # type: ignore
 except Exception as exc:  # pragma: no cover - hard error path
-    raise RuntimeError("beautifulsoup4 is required by expand_by_source.py but is not installed") from exc
+    raise RuntimeError(
+        "beautifulsoup4 is required by expand_by_source.py but is not installed"
+    ) from exc
 
 LOG = logging.getLogger("expand_by_source")
 
@@ -123,7 +125,12 @@ def expand_row(row: Dict[str, str], columns: List[str]) -> Tuple[Dict[str, str],
             has_nontrivial_tag = any(t for t in tags_list if t not in trivial_tags)
             has_href = "href" in html_parts
             has_img = "img" in html_parts
-            text_only = ("text" in html_parts) and (not has_href) and (not has_img) and (not has_nontrivial_tag)
+            text_only = (
+                ("text" in html_parts)
+                and (not has_href)
+                and (not has_img)
+                and (not has_nontrivial_tag)
+            )
 
             if "text" in html_parts and not text_only:
                 key = f"{col}_text"
@@ -164,7 +171,9 @@ def expand_row(row: Dict[str, str], columns: List[str]) -> Tuple[Dict[str, str],
 
 
 def discover_columns_to_process(
-    header: Sequence[str], requested: List[str] | None, rows: Sequence[Dict[str, str]] | None = None
+    header: Sequence[str],
+    requested: List[str] | None,
+    rows: Sequence[Dict[str, str]] | None = None,
 ) -> List[str]:
     """
     Decide which columns should be inspected/expanded.
@@ -181,7 +190,16 @@ def discover_columns_to_process(
         return [c for c in requested if c in header]
 
     # Base candidate names that are commonly expanded
-    candidates = {"description", "desc", "content", "enclosure", "image", "guid", "link", "title"}
+    candidates = {
+        "description",
+        "desc",
+        "content",
+        "enclosure",
+        "image",
+        "guid",
+        "link",
+        "title",
+    }
 
     def normalize_header(h: str) -> str:
         # strip XML namespace wrappers like '{http://...}content'
@@ -199,7 +217,11 @@ def discover_columns_to_process(
         if nh in candidates:
             cols.append(h)
             continue
-        if HTML_DETECT_RE.search(h) or JSON_LIKE_RE.search(h) or JSON_LIKE_RE.search(nh):
+        if (
+            HTML_DETECT_RE.search(h)
+            or JSON_LIKE_RE.search(h)
+            or JSON_LIKE_RE.search(nh)
+        ):
             cols.append(h)
 
     # If rows provided, scan all rows to find any column that contains signs of HTML/JSON
@@ -222,7 +244,9 @@ def discover_columns_to_process(
                 # common attribute patterns inside HTML fragments — only count them
                 # when angle brackets are present to avoid matching plain URLs.
                 low = v.lower()
-                if ("<" in v or ">" in v) and ("href=" in low or "src=" in low or "data-src" in low):
+                if ("<" in v or ">" in v) and (
+                    "href=" in low or "src=" in low or "data-src" in low
+                ):
                     found = True
                     break
             if found:
@@ -239,11 +263,19 @@ def discover_columns_to_process(
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Expand HTML/JSON-like fields in CSV into multiple columns")
+    p = argparse.ArgumentParser(
+        description="Expand HTML/JSON-like fields in CSV into multiple columns"
+    )
     p.add_argument("--input", required=True, help="Relative path to input CSV")
     p.add_argument("--output", required=True, help="Relative path to output CSV")
-    p.add_argument("--columns", nargs="*", help="List of columns to try to expand (defaults: heuristics)")
-    p.add_argument("--force", action="store_true", help="Always write output even if no changes")
+    p.add_argument(
+        "--columns",
+        nargs="*",
+        help="List of columns to try to expand (defaults: heuristics)",
+    )
+    p.add_argument(
+        "--force", action="store_true", help="Always write output even if no changes"
+    )
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args(argv)
 
@@ -262,7 +294,11 @@ def main(argv=None) -> int:
         header = reader.fieldnames or []
 
     # If no explicit columns provided, inspect the whole CSV rows to detect columns
-    cols_to_try = args.columns if args.columns else discover_columns_to_process(header, None, rows)
+    cols_to_try = (
+        args.columns
+        if args.columns
+        else discover_columns_to_process(header, None, rows)
+    )
     LOG.info("Columns to attempt expansion: %s", cols_to_try)
 
     new_rows = []

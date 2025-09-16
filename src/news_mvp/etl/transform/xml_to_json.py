@@ -78,7 +78,9 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Convert XML to JSON preserving all fields")
     p.add_argument("input", help="Input XML file path")
     p.add_argument("output", nargs="?", help="Optional output JSON file path")
-    p.add_argument("--indent", type=int, default=2, help="JSON indent spaces (default 2)")
+    p.add_argument(
+        "--indent", type=int, default=2, help="JSON indent spaces (default 2)"
+    )
     return p.parse_args(argv)
 
 

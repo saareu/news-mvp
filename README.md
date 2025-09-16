@@ -37,11 +37,39 @@ py scripts\ge_validate.py data\master\master_news.csv
 
 ### Running tests
 
-Install test deps and run:
+Install test dependencies and run:
 
 ```powershell
 pip install pytest
 py -m pytest -q
+```
+
+### Development Setup
+
+For development, install development dependencies and set up pre-commit hooks:
+
+```powershell
+pip install -e ".[dev]"
+pre-commit install
+pre-commit run --all-files
+```
+
+This will install all necessary development tools:
+- pre-commit: For running hooks before commits
+- pytest: For running tests
+- ruff: For linting
+- pyright: For type checking
+
+If a hook modifies files (e.g., formatting or import cleanup), re-stage them:
+
+```powershell
+git add .
+```
+
+To update hook versions later:
+
+```powershell
+pre-commit autoupdate
 ```
 
 ## Scheduled ETL and repository variable

@@ -36,7 +36,14 @@ def validate(path: str) -> int:
                 break
     missing = [c for c in required if c not in df.columns]
     if missing:
-        print({"ok": False, "reason": "missing_columns", "missing": missing, "stats": {"total": total}})
+        print(
+            {
+                "ok": False,
+                "reason": "missing_columns",
+                "missing": missing,
+                "stats": {"total": total},
+            }
+        )
         return 2
 
     not_null_ok = all(df[c].notna().all() for c in required)
@@ -52,10 +59,21 @@ def validate(path: str) -> int:
         date_ok = False
 
     all_ok = not_null_ok and unique_ok and links_ok and date_ok
-    print({"ok": all_ok, "stats": {"total": total, "unique_id": df["id"].nunique(), "date_ok": date_ok}})
+    print(
+        {
+            "ok": all_ok,
+            "stats": {
+                "total": total,
+                "unique_id": df["id"].nunique(),
+                "date_ok": date_ok,
+            },
+        }
+    )
     return 0 if all_ok else 2
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python scripts/ge_validate.py <csv>", file=sys.stderr); sys.exit(2)
+        print("Usage: python scripts/ge_validate.py <csv>", file=sys.stderr)
+        sys.exit(2)
     sys.exit(validate(sys.argv[1]))

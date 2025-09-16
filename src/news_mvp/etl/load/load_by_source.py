@@ -14,6 +14,7 @@ Options:
     --source  Source name to use in the master filename (default: inferred)
     --master  Optional override for the master CSV path
 """
+
 from __future__ import annotations
 
 import argparse
@@ -124,7 +125,7 @@ def merge_master(input_path: str, master_path: str) -> str:
     # determine fieldnames as union of all keys preserving order from master then input
     # but exclude `guid` so the master file never contains it
     fieldnames = []
-    for src in (master_rows + input_rows):
+    for src in master_rows + input_rows:
         for k in src.keys():
             if k == "guid":
                 continue
@@ -136,9 +137,15 @@ def merge_master(input_path: str, master_path: str) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Merge an input CSV into the master news CSV")
+    p = argparse.ArgumentParser(
+        description="Merge an input CSV into the master news CSV"
+    )
     p.add_argument("--input", required=True, help="Relative path to input CSV to merge")
-    p.add_argument("--source", required=False, help="Source name to use for master file (eg. hayom)")
+    p.add_argument(
+        "--source",
+        required=False,
+        help="Source name to use for master file (eg. hayom)",
+    )
     p.add_argument("--master", required=False, help="Master CSV path", default=None)
     args = p.parse_args(argv)
 

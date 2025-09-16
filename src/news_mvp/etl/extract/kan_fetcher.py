@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -33,12 +31,21 @@ LOG = logging.getLogger("kan_fetcher")
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Selenium fetcher for Kan newsflash")
-    p.add_argument("--headless", action="store_true", default=True,
-                   help="Run Chrome in headless mode (default: True)")
-    p.add_argument("--no-headless", dest="headless", action="store_false",
-                   help="Run Chrome with a visible window (useful for debugging)")
-    p.add_argument("--timeout", type=int, default=30,
-                   help="Page load timeout in seconds")
+    p.add_argument(
+        "--headless",
+        action="store_true",
+        default=True,
+        help="Run Chrome in headless mode (default: True)",
+    )
+    p.add_argument(
+        "--no-headless",
+        dest="headless",
+        action="store_false",
+        help="Run Chrome with a visible window (useful for debugging)",
+    )
+    p.add_argument(
+        "--timeout", type=int, default=30, help="Page load timeout in seconds"
+    )
     return p.parse_args(argv)
 
 
@@ -68,8 +75,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1280,1024")
-    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+    options.add_argument(
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    )
 
     try:
         service = Service(ChromeDriverManager().install())

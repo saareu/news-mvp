@@ -13,6 +13,7 @@ Optional flags:
   --source  Source name to use to fill missing imageCredit (defaults to source column or filename).
 
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,9 +21,8 @@ import csv
 import hashlib
 import os
 import re
-import sys
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import asyncio
 
 import httpx
@@ -66,7 +66,9 @@ def deterministic_filename(source: str, idx: int, url: str) -> str:
     return f"{safe_source}_{idx:04d}_{h}{ext}"
 
 
-def filename_from_id_or_fallback(row: Dict[str, str], idx: int, url: str, source: str) -> Tuple[str, str]:
+def filename_from_id_or_fallback(
+    row: Dict[str, str], idx: int, url: str, source: str
+) -> Tuple[str, str]:
     """Return (filename_with_ext, basename_no_ext).
 
     Prefer row['id'] as basename. Sanitize it. If missing, fall back to deterministic
@@ -121,7 +123,9 @@ def download_image(url: str, dest_path: str) -> bool:
     headers = {"User-Agent": "news-etl/1.0 (+https://example.invalid)"}
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            with httpx.Client(timeout=DEFAULT_TIMEOUT, headers=headers, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=DEFAULT_TIMEOUT, headers=headers, follow_redirects=True
+            ) as client:
                 r = client.get(url)
                 if r.status_code == 200 and r.content:
                     with open(dest_path, "wb") as f:
@@ -134,7 +138,9 @@ def download_image(url: str, dest_path: str) -> bool:
     return False
 
 
-async def download_image_async(url: str, dest_path: str, client: httpx.AsyncClient) -> bool:
+async def download_image_async(
+    url: str, dest_path: str, client: httpx.AsyncClient
+) -> bool:
     """Asynchronous download with an httpx.AsyncClient instance.
 
     Returns True on success.
@@ -154,7 +160,9 @@ async def download_image_async(url: str, dest_path: str, client: httpx.AsyncClie
     return False
 
 
-def process_csv(input_path: str, output_path: str, source_override: Optional[str] = None) -> Tuple[List[Dict[str, str]], List[str], Dict[str, int]]:
+def process_csv(
+    input_path: str, output_path: str, source_override: Optional[str] = None
+) -> Tuple[List[Dict[str, str]], List[str], Dict[str, int]]:
     ensure_pic_dir()
 
     stats = {"rows": 0, "images_downloaded": 0, "images_missing": 0}
@@ -172,16 +180,22 @@ def process_csv(input_path: str, output_path: str, source_override: Optional[str
             source_name = source_override
         else:
             # look for a 'source' column in the CSV header
-            source_name = reader.fieldnames and ("source" if "source" in reader.fieldnames else None)
+            source_name = reader.fieldnames and (
+                "source" if "source" in reader.fieldnames else None
+            )
             if isinstance(source_name, str):
                 # if 'source' is a header name we extract first row value
                 source_name = rows[0].get("source", "unknown")
             else:
                 # fallback to filename-based source
                 base = os.path.basename(input_path)
-                source_name = base.split("_")[0] if "_" in base else os.path.splitext(base)[0]
+                source_name = (
+                    base.split("_")[0] if "_" in base else os.path.splitext(base)[0]
+                )
 
-        out_fieldnames = list(reader.fieldnames) if reader.fieldnames else list(rows[0].keys())
+        out_fieldnames = (
+            list(reader.fieldnames) if reader.fieldnames else list(rows[0].keys())
+        )
         # ensure image, imageCredit and imageName columns exist (imageName appended last)
         if "image" not in out_fieldnames:
             out_fieldnames.append("image")
@@ -209,7 +223,9 @@ def process_csv(input_path: str, output_path: str, source_override: Optional[str
                 except Exception:
                     imageName_remote = ""
 
-                filename, basename = filename_from_id_or_fallback(row, idx, img_url, source_name)
+                filename, basename = filename_from_id_or_fallback(
+                    row, idx, img_url, source_name
+                )
                 dest = os.path.join(PIC_DIR, filename)
                 # for sync path we'll download immediately; for async path the caller will handle
                 # set provisional values; actual download may change stats
@@ -266,9 +282,16 @@ def perform_sync_downloads(rows: List[Dict[str, str]], stats: Dict[str, int]) ->
             stats["images_missing"] += 1
 
 
-async def perform_async_downloads(rows: List[Dict[str, str]], stats: Dict[str, int], concurrency: int) -> None:
+async def perform_async_downloads(
+    rows: List[Dict[str, str]], stats: Dict[str, int], concurrency: int
+) -> None:
     sem = asyncio.Semaphore(concurrency)
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=True, headers={"User-Agent": "news-etl/1.0 (+https://example.invalid)"}) as client:
+    async with httpx.AsyncClient(
+        timeout=DEFAULT_TIMEOUT,
+        follow_redirects=True,
+        headers={"User-Agent": "news-etl/1.0 (+https://example.invalid)"},
+    ) as client:
+
         async def worker(row: Dict[str, str]) -> None:
             img_url = row.get("_pending_img_url")
             if not img_url:
@@ -295,7 +318,9 @@ async def perform_async_downloads(rows: List[Dict[str, str]], stats: Dict[str, i
         await asyncio.gather(*(worker(r) for r in rows))
 
 
-def write_output_csv(output_path: str, rows: List[Dict[str, str]], out_fieldnames: List[str]) -> None:
+def write_output_csv(
+    output_path: str, rows: List[Dict[str, str]], out_fieldnames: List[str]
+) -> None:
     with open(output_path, "w", newline="", encoding="utf-8") as outf:
         writer = csv.DictWriter(outf, fieldnames=out_fieldnames)
         writer.writeheader()
@@ -305,12 +330,26 @@ def write_output_csv(output_path: str, rows: List[Dict[str, str]], out_fieldname
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Download images and produce a master CSV for a source.")
+    p = argparse.ArgumentParser(
+        description="Download images and produce a master CSV for a source."
+    )
     p.add_argument("--input", required=True, help="Path to enhanced input CSV")
     p.add_argument("--output", required=False, help="Path to output master CSV")
-    p.add_argument("--source", required=False, help="Source name to use for imageCredit if missing")
-    p.add_argument("--async", dest="async_mode", action="store_true", help="Use async concurrent downloads")
-    p.add_argument("--concurrency", type=int, default=6, help="Max concurrent downloads when using --async")
+    p.add_argument(
+        "--source", required=False, help="Source name to use for imageCredit if missing"
+    )
+    p.add_argument(
+        "--async",
+        dest="async_mode",
+        action="store_true",
+        help="Use async concurrent downloads",
+    )
+    p.add_argument(
+        "--concurrency",
+        type=int,
+        default=6,
+        help="Max concurrent downloads when using --async",
+    )
     args = p.parse_args(argv)
 
     input_path = args.input
@@ -330,7 +369,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print(f"reading: {input_path}")
     print(f"writing: {output_path}")
-    rows, out_fieldnames, stats = process_csv(input_path, output_path, source_override=args.source)
+    rows, out_fieldnames, stats = process_csv(
+        input_path, output_path, source_override=args.source
+    )
 
     # perform downloads
     if args.async_mode:
@@ -349,7 +390,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # write CSV
     write_output_csv(output_path, rows, out_fieldnames)
 
-    print(f"rows={stats['rows']}, images_downloaded={stats['images_downloaded']}, images_missing={stats['images_missing']}")
+    print(
+        f"rows={stats['rows']}, images_downloaded={stats['images_downloaded']}, images_missing={stats['images_missing']}"
+    )
     # Print the output CSV relative path as the last line so callers/CI can capture it
     output_rel = os.path.relpath(output_path).replace("\\", "/")
     print(output_rel)

@@ -34,3 +34,5 @@ src/news_mvp/etl/transform/xml_to_json.py
 src/news_mvp/utils/__init__.py
 tests/test_boot.py
 tests/test_etl_dry.py
+tests/test_ge_validate.py
+tests/test_ingest_config.py

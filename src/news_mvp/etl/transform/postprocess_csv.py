@@ -161,7 +161,9 @@ def postprocess_csv(path: Path) -> None:
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="Postprocess CSV cells (parse JSON/python literals and strip HTML)")
+    p = argparse.ArgumentParser(
+        description="Postprocess CSV cells (parse JSON/python literals and strip HTML)"
+    )
     p.add_argument("input", help="CSV file path")
     return p.parse_args(argv)
 

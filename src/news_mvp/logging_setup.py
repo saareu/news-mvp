@@ -1,4 +1,6 @@
-import logging, sys
+import logging
+import sys
+
 
 def get_logger(name: str = "news_mvp") -> logging.Logger:
     logger = logging.getLogger(name)

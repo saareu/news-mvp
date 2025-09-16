@@ -15,6 +15,7 @@ from typing import Optional
 
 try:
     import httpx  # type: ignore
+
     _HAS_HTTPX = True
 except Exception:  # pragma: no cover - best-effort fallback
     httpx = None  # type: ignore
@@ -23,7 +24,9 @@ except Exception:  # pragma: no cover - best-effort fallback
 DEFAULT_UA = "Mozilla/5.0 (compatible; rss-fetcher/1.0)"
 
 
-def fetch_rss_bytes(url: str, *, timeout: float = 20.0, user_agent: Optional[str] = None) -> bytes:
+def fetch_rss_bytes(
+    url: str, *, timeout: float = 20.0, user_agent: Optional[str] = None
+) -> bytes:
     """Fetch an RSS/Atom URL and return the raw response bytes (no changes).
 
     Uses `httpx` when installed for nicer timeout handling; otherwise falls back
@@ -35,7 +38,9 @@ def fetch_rss_bytes(url: str, *, timeout: float = 20.0, user_agent: Optional[str
         # mypy/static checkers might complain if httpx is None; local binding narrows the type
         httpx_client = httpx
         headers = {"User-Agent": ua}
-        with httpx_client.Client(follow_redirects=True, headers=headers, timeout=timeout) as client:
+        with httpx_client.Client(
+            follow_redirects=True, headers=headers, timeout=timeout
+        ) as client:
             r = client.get(url)
             r.raise_for_status()
             return r.content

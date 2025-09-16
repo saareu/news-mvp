@@ -35,11 +35,11 @@ import argparse
 import csv
 import hashlib
 import logging
-import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 import email.utils
-from datetime import datetime, timezone
+from datetime import datetime
+
 try:
     from langdetect import detect as langdetect_detect  # type: ignore
 except Exception:
@@ -84,7 +84,9 @@ def parse_concat_spec(spec: str) -> Tuple[List[str], List[str]]:
     if len(tokens) == 0:
         raise ValueError(f"Empty concat spec: {spec!r}")
     if len(tokens) % 2 == 0:
-        raise ValueError(f"Malformed concat spec (must have odd number of '+'-separated tokens): {spec!r}")
+        raise ValueError(
+            f"Malformed concat spec (must have odd number of '+'-separated tokens): {spec!r}"
+        )
     fields = [tokens[i].strip() for i in range(0, len(tokens), 2)]
     delims = [tokens[i] for i in range(1, len(tokens), 2)]
     if any(not f for f in fields):
@@ -124,7 +126,7 @@ def detect_language_from_title(title: str) -> str:
         if "\u0590" <= ch <= "\u05FF":
             return "he"
         # Latin letters
-        if ('A' <= ch <= 'Z') or ('a' <= ch <= 'z'):
+        if ("A" <= ch <= "Z") or ("a" <= ch <= "z"):
             has_latin = True
     if has_latin:
         # If langdetect is available, use it to detect specific Latin language codes
@@ -163,6 +165,7 @@ def normalize_pubdate(date_str: str, force_tz_offset: int | None = None) -> str:
             offset = parsed[9] if len(parsed) > 9 else None
             if offset is not None:
                 from datetime import timezone, timedelta
+
                 orig_tz = timezone(timedelta(seconds=offset))
                 dt = datetime(y, m, d, H, M, S, tzinfo=orig_tz)
             else:
@@ -182,6 +185,7 @@ def normalize_pubdate(date_str: str, force_tz_offset: int | None = None) -> str:
         if force_tz_offset is not None:
             # Replace tzinfo with forced offset, do NOT shift the time
             from datetime import timedelta, timezone as dt_timezone
+
             tz = dt_timezone(timedelta(hours=force_tz_offset))
             dt = dt.replace(tzinfo=tz)
         # Output in ISO 8601 format
@@ -207,7 +211,6 @@ def build_canonical_rows(
     for r in mapping_rows:
         spec_for[r["canonical"]] = r.get(source_col_name, "")
 
-
     for idx, row in enumerate(input_rows, start=1):
         out: Dict[str, str] = {}
         for canon in canonical_cols:
@@ -220,7 +223,9 @@ def build_canonical_rows(
                 try:
                     val = combine_concat(spec, row)
                 except Exception as e:
-                    raise RuntimeError(f"Invalid concat spec for canonical '{canon}': {spec!r}: {e}") from e
+                    raise RuntimeError(
+                        f"Invalid concat spec for canonical '{canon}': {spec!r}: {e}"
+                    ) from e
                 out[canon] = val
             else:
                 # simple mapping: take value from source column name
@@ -232,7 +237,12 @@ def build_canonical_rows(
 
         # normalize pubDate if present
         if out.get("pubDate"):
-            out["pubDate"] = normalize_pubdate(out["pubDate"], force_tz_offset=build_canonical_rows.force_tz_offset) or out["pubDate"]
+            out["pubDate"] = (
+                normalize_pubdate(
+                    out["pubDate"], force_tz_offset=build_canonical_rows.force_tz_offset
+                )
+                or out["pubDate"]
+            )
 
         # Enforce non-nullable contract: title, pubDate, and source must be present
         missing = []
@@ -270,13 +280,25 @@ def build_canonical_rows(
 
 def main(argv=None) -> int:
 
-
     from news_mvp.etl.config import CANON_DIR
-    p = argparse.ArgumentParser(description="Map expanded per-source CSV into canonical CSV using etl/schema/mapping.csv. All paths are configurable via etl/config.py and environment/YAML.")
+
+    p = argparse.ArgumentParser(
+        description="Map expanded per-source CSV into canonical CSV using etl/schema/mapping.csv. All paths are configurable via etl/config.py and environment/YAML."
+    )
     p.add_argument("--input", required=True, help="Path to expanded input CSV")
-    p.add_argument("--output", help=f"Optional output path; if omitted, writes to <CANON_DIR>/{{source}}/<basename>_canonical.csv (default: {CANON_DIR}/{{source}})")
-    p.add_argument("--mapping", default="etl/schema/mapping.csv", help="Path to mapping CSV")
-    p.add_argument("--force-tz-offset", type=int, default=None, help="Force output timezone offset in hours (e.g., 3 for +03:00, -5 for -05:00)")
+    p.add_argument(
+        "--output",
+        help=f"Optional output path; if omitted, writes to <CANON_DIR>/{{source}}/<basename>_canonical.csv (default: {CANON_DIR}/{{source}})",
+    )
+    p.add_argument(
+        "--mapping", default="etl/schema/mapping.csv", help="Path to mapping CSV"
+    )
+    p.add_argument(
+        "--force-tz-offset",
+        type=int,
+        default=None,
+        help="Force output timezone offset in hours (e.g., 3 for +03:00, -5 for -05:00)",
+    )
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args(argv)
 
@@ -308,7 +330,9 @@ def main(argv=None) -> int:
             source_col_name = c
             break
     if source_col_name is None:
-        LOG.error("Source '%s' not found in mapping columns: %s", source, candidate_cols)
+        LOG.error(
+            "Source '%s' not found in mapping columns: %s", source, candidate_cols
+        )
         return 1
 
     # read input CSV
@@ -318,7 +342,9 @@ def main(argv=None) -> int:
 
     # Pass force_tz_offset to build_canonical_rows via function attribute (hacky but avoids changing many signatures)
     build_canonical_rows.force_tz_offset = args.force_tz_offset
-    canonical_cols, out_rows = build_canonical_rows(input_rows, mapping_rows, fieldnames, source, source_col_name)
+    canonical_cols, out_rows = build_canonical_rows(
+        input_rows, mapping_rows, fieldnames, source, source_col_name
+    )
 
     # build output path
     if args.output:

@@ -17,7 +17,7 @@ import argparse
 import csv
 import logging
 from pathlib import Path
-from typing import Set, Dict
+from typing import Set
 
 LOG = logging.getLogger("create_csv_to_load_by_source")
 
@@ -43,7 +43,12 @@ def read_master_ids(master_path: Path, id_field: str = "id") -> Set[str]:
     return ids
 
 
-def create_unenhanced(input_path: Path, master_dir: Path | None = None, id_field: str = "id", output_path: Path | None = None) -> Path:
+def create_unenhanced(
+    input_path: Path,
+    master_dir: Path | None = None,
+    id_field: str = "id",
+    output_path: Path | None = None,
+) -> Path:
     if not input_path.exists():
         raise FileNotFoundError(input_path)
 
@@ -78,11 +83,20 @@ def create_unenhanced(input_path: Path, master_dir: Path | None = None, id_field
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Create CSV of rows not present in master per-source file")
+    p = argparse.ArgumentParser(
+        description="Create CSV of rows not present in master per-source file"
+    )
     p.add_argument("--input", required=True, help="Path to canonical CSV")
-    p.add_argument("--master-dir", help="Directory containing per-source master files (default data/master)")
-    p.add_argument("--id-field", default="id", help="ID field name to compare (default 'id')")
-    p.add_argument("--output", help="Optional output path; default: <input>_unenhanced.csv")
+    p.add_argument(
+        "--master-dir",
+        help="Directory containing per-source master files (default data/master)",
+    )
+    p.add_argument(
+        "--id-field", default="id", help="ID field name to compare (default 'id')"
+    )
+    p.add_argument(
+        "--output", help="Optional output path; default: <input>_unenhanced.csv"
+    )
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args(argv)
 
@@ -93,7 +107,12 @@ def main(argv=None) -> int:
     output_path = Path(args.output) if args.output else None
 
     try:
-        out = create_unenhanced(input_path, master_dir=master_dir, id_field=args.id_field, output_path=output_path)
+        out = create_unenhanced(
+            input_path,
+            master_dir=master_dir,
+            id_field=args.id_field,
+            output_path=output_path,
+        )
         try:
             rel = out.relative_to(Path.cwd())
         except Exception:

@@ -1,27 +1,32 @@
-
 # src/news_mvp/settings.py
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import yaml, os
+import yaml
+import os
 from types import SimpleNamespace
 from news_mvp.paths import Paths
 
+
 class RuntimeConfig(BaseModel):
     dry_run: bool = False
+
 
 class IngestConfig(BaseModel):
     input_glob: str = "data/raw/source=*/date=*/part-*.parquet"
     batch_size: int = 1000
     parallel_workers: int = 2
 
+
 # … existing models …
 class EtlSource(BaseModel):
     rss: str | None = None
     force_tz_offset: int | None = None
 
+
 class EtlSchema(BaseModel):
     mapping_csv: str
     selectors_csv: str
+
 
 class EtlOutput(BaseModel):
     raw_pattern: str
@@ -29,9 +34,11 @@ class EtlOutput(BaseModel):
     master_dir: str
     images_dir: str
 
+
 class EtlBehavior(BaseModel):
     download_images: bool = True
     merge_after_all_sources: bool = True
+
 
 class EtlCfg(BaseModel):
     sources: dict[str, EtlSource]
