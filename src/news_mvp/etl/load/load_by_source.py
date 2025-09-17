@@ -114,21 +114,13 @@ def merge_master(input_path: str, master_path: str) -> str:
 
     rows = list(deduped.values())
 
-    # remove guid from rows before writing the master
-    for r in rows:
-        if "guid" in r:
-            r.pop("guid", None)
-
     # sort by pubDate descending
     rows.sort(key=lambda r: parse_pubdate(r.get("pubDate")), reverse=True)
 
     # determine fieldnames as union of all keys preserving order from master then input
-    # but exclude `guid` so the master file never contains it
     fieldnames = []
     for src in master_rows + input_rows:
         for k in src.keys():
-            if k == "guid":
-                continue
             if k not in fieldnames:
                 fieldnames.append(k)
 
