@@ -13,7 +13,7 @@ def test_ge_validate_success(tmp_path):
     # create a minimal valid CSV
     csv = tmp_path / "ok.csv"
     csv.write_text(
-        "id,title,link,pubDate\n1,hello,http://example.com,2025-01-01\n2,there,http://example.org,2025-01-02\n"
+        "id,title,link,pubDate,source\nid1,hello,http://example.com,2025-01-01,test\nid2,there,http://example.org,2025-01-02,test\n"
     )
     r = run_csv(csv)
     assert r.returncode == 0, r.stderr.decode()
@@ -22,7 +22,7 @@ def test_ge_validate_success(tmp_path):
 def test_ge_validate_image_fallback(tmp_path):
     csv = tmp_path / "img.csv"
     csv.write_text(
-        "id,title,image,pubDate\n1,hello,http://example.com/img.jpg,2025-01-01\n"
+        "id,title,image,pubDate,source\nid1,hello,http://example.com/img.jpg,2025-01-01,test\n"
     )
     r = run_csv(csv)
     assert r.returncode == 0, r.stderr.decode()

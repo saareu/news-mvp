@@ -41,6 +41,16 @@ class Paths:
         return Paths.data_root() / "pics"
 
     @staticmethod
+    def db() -> Path:
+        """Get the database directory."""
+        return Paths.data_root() / "db"
+
+    @staticmethod
+    def database() -> Path:
+        """Get the default database file path."""
+        return Paths.db() / "news_mvp.duckdb"
+
+    @staticmethod
     def ensure_all():
         for p in [
             Paths.data_root(),

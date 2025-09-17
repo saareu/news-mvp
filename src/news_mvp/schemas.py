@@ -25,23 +25,32 @@ logger = logging.getLogger(__name__)
 
 
 def get_parquet_schema() -> pa.schema:
-    """Get the standard Parquet schema for articles."""
+    """Get the standard Parquet schema for articles using CSV casing.
+
+    Field naming is unified across CSV → Parquet → DuckDB:
+    id, title, description, category, pubDate, tags (list<string>), creator, source,
+    language, image, imageCaption, imageCredit, imageName, imageBlob (optional bytes),
+    guid, processed_at, batch_hour.
+    pubDate stored as timestamp (ns) for analytical queries; original string form can
+    be regenerated if needed. Tags become list<string>.
+    """
     return pa.schema(
         [
-            ("article_id", pa.string()),
+            ("id", pa.string()),
             ("title", pa.string()),
             ("description", pa.string()),
             ("category", pa.string()),
-            ("pub_date", pa.timestamp("ns")),
+            ("pubDate", pa.timestamp("ns")),
             ("tags", pa.list_(pa.string())),
             ("creator", pa.string()),
             ("source", pa.string()),
             ("language", pa.string()),
-            ("image_path", pa.string()),
-            ("image_caption", pa.string()),
-            ("image_credit", pa.string()),
-            ("image_name", pa.string()),
-            ("guid", pa.string()),  # RSS feed unique identifier
+            ("image", pa.string()),
+            ("imageCaption", pa.string()),
+            ("imageCredit", pa.string()),
+            ("imageName", pa.string()),
+            ("imageBlob", pa.binary()),
+            ("guid", pa.string()),
             ("processed_at", pa.timestamp("ns")),
             ("batch_hour", pa.int64()),
         ]
@@ -66,20 +75,21 @@ def get_raw_parquet_schema() -> pa.schema:
 # ===== PANDAS DATA TYPE MAPPINGS =====
 
 ARTICLE_DTYPES = {
-    "article_id": "string",
+    "id": "string",
     "title": "string",
     "description": "string",
     "category": "string",
-    "pub_date": "datetime64[ns, UTC]",
-    "tags": "object",  # List of strings
+    "pubDate": "datetime64[ns, UTC]",
+    "tags": "object",  # list of strings
     "creator": "string",
     "source": "string",
     "language": "string",
-    "image_path": "string",
-    "image_caption": "string",
-    "image_credit": "string",
-    "image_name": "string",
-    "guid": "string",  # RSS feed unique identifier
+    "image": "string",
+    "imageCaption": "string",
+    "imageCredit": "string",
+    "imageName": "string",
+    "imageBlob": "object",  # will hold bytes when populated
+    "guid": "string",
     "processed_at": "datetime64[ns, UTC]",
     "batch_hour": "Int64",
 }
@@ -100,27 +110,30 @@ RAW_ARTICLE_DTYPES = {
 
 
 class ArticleModel(BaseModel):
-    """Pydantic model for article validation."""
+    """Article model with unified CSV casing."""
 
-    article_id: str = Field(..., description="Unique article identifier")
+    id: str = Field(..., description="Article ID")
     title: str = Field(..., description="Article title")
     description: Optional[str] = Field(None, description="Article description")
     category: Optional[str] = Field(None, description="Article category")
-    pub_date: datetime = Field(..., description="Publication date")
+    pubDate: datetime = Field(..., description="Publication datetime (UTC)")
     tags: List[str] = Field(default_factory=list, description="Article tags")
     creator: Optional[str] = Field(None, description="Article creator")
     source: str = Field(..., description="Data source")
     language: str = Field("he", description="Article language")
-    image_path: Optional[str] = Field(None, description="Path to article image")
-    image_caption: Optional[str] = Field(None, description="Image caption")
-    image_credit: Optional[str] = Field(None, description="Image credit")
-    image_name: Optional[str] = Field(None, description="Image filename")
+    image: Optional[str] = Field(None, description="Image path")
+    imageCaption: Optional[str] = Field(None, description="Image caption")
+    imageCredit: Optional[str] = Field(None, description="Image credit")
+    imageName: Optional[str] = Field(None, description="Image filename")
+    imageBlob: Optional[bytes] = Field(None, description="Raw image bytes (optional)")
     guid: Optional[str] = Field(None, description="RSS feed unique identifier")
     processed_at: datetime = Field(
-        default_factory=lambda: datetime.now(), description="Processing timestamp"
+        default_factory=lambda: datetime.utcnow(),
+        description="Processing timestamp UTC",
     )
     batch_hour: int = Field(
-        default_factory=lambda: datetime.now().hour, description="Processing hour"
+        default_factory=lambda: datetime.utcnow().hour,
+        description="Processing hour (UTC)",
     )
 
 
@@ -172,8 +185,9 @@ CSV_COLUMNS = {
         "source",
         "language",
         "imageName",
-        "guid",  # RSS feed unique identifier
+        "guid",
     ],
+    # canonical view keeps subset
     "canonical": [
         "id",
         "title",
@@ -185,6 +199,7 @@ CSV_COLUMNS = {
         "source",
         "language",
     ],
+    # enhanced aligns naming; imageBlob may appear after enrichment
     "enhanced": [
         "id",
         "title",
@@ -195,11 +210,12 @@ CSV_COLUMNS = {
         "creator",
         "source",
         "language",
-        "image_path",
-        "image_caption",
-        "image_credit",
-        "image_name",
-        "guid",  # RSS feed unique identifier
+        "image",
+        "imageCaption",
+        "imageCredit",
+        "imageName",
+        "imageBlob",
+        "guid",
     ],
 }
 
@@ -208,54 +224,66 @@ CSV_COLUMNS = {
 
 
 def validate_article_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate and clean article DataFrame using Pydantic models."""
-    validated_articles = []
+    """Validate and normalize article DataFrame using unified schema.
 
+    - Keeps original column names (CSV casing).
+    - Normalizes pubDate to UTC and truncates to hour resolution.
+    - Splits tags pipe string into list; if already list leaves as-is.
+    - Returns DataFrame with validated rows only.
+    """
+    validated: List[dict] = []
     for _, row in df.iterrows():
         try:
-            # Convert row to dict and handle NaN values
-            row_dict = {}
+            row_dict: dict = {}
             for col, val in row.items():
-                if pd.isna(val):
-                    row_dict[col] = None
+                row_dict[col] = None if pd.isna(val) else val
+
+            # Normalize pubDate (accept string or datetime)
+            if row_dict.get("pubDate") is not None:
+                try:
+                    dt = pd.to_datetime(row_dict["pubDate"], utc=True)
+                    # Truncate to hour for consistency
+                    dt = dt.replace(minute=0, second=0, microsecond=0)
+                    row_dict["pubDate"] = dt.to_pydatetime()
+                except Exception as e:  # pragma: no cover
+                    raise ValueError(
+                        f"Invalid pubDate: {row_dict.get('pubDate')} ({e})"
+                    )
+
+            # Normalize tags
+            tags_val = row_dict.get("tags")
+            if isinstance(tags_val, str):
+                # Support both pipe and comma separated
+                if "|" in tags_val:
+                    tags_list = [t.strip() for t in tags_val.split("|") if t.strip()]
                 else:
-                    row_dict[col] = val
+                    tags_list = [t.strip() for t in tags_val.split(",") if t.strip()]
+                row_dict["tags"] = tags_list
+            elif tags_val is None:
+                row_dict["tags"] = []
+            elif isinstance(tags_val, list):
+                row_dict["tags"] = [str(t).strip() for t in tags_val if str(t).strip()]
+            else:
+                row_dict["tags"] = [str(tags_val)]
 
-            # First validate against CSV model
-            csv_article = CSVArticleModel(**row_dict)
+            # Coerce imageBlob if present but not bytes
+            if "imageBlob" in row_dict and row_dict["imageBlob"] is not None:
+                if not isinstance(row_dict["imageBlob"], (bytes, bytearray)):
+                    raise ValueError("imageBlob must be bytes if provided")
 
-            # Transform to ArticleModel format
-            article_dict = {
-                "article_id": csv_article.id,
-                "title": csv_article.title,
-                "description": csv_article.description,
-                "category": csv_article.category,
-                "pub_date": pd.to_datetime(csv_article.pubDate),
-                "tags": csv_article.tags.split("|") if csv_article.tags else [],
-                "creator": csv_article.creator,
-                "source": csv_article.source,
-                "language": csv_article.language or "he",
-                "image_path": csv_article.image,
-                "image_caption": csv_article.imageCaption,
-                "image_credit": csv_article.imageCredit,
-                "image_name": csv_article.imageName,
-                "guid": csv_article.guid,
-            }
-
-            # Validate against ArticleModel
-            article = ArticleModel(**article_dict)
-            validated_articles.append(article.dict())
+            article = ArticleModel(**row_dict)
+            # Convert back to dict but ensure pubDate stays datetime (Arrow writer handles)
+            validated.append(article.dict())
         except Exception as e:
             logger.warning(
                 f"Invalid article data (ID: {row.get('id', 'unknown')}): {e}"
             )
             continue
 
-    if not validated_articles:
+    if not validated:
         logger.warning("No valid articles found after validation")
         return pd.DataFrame()
-
-    return pd.DataFrame(validated_articles)
+    return pd.DataFrame(validated)
 
 
 def validate_raw_article_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -290,13 +318,12 @@ def get_schema_version() -> str:
 
 
 def get_required_columns(schema_type: str = "article") -> List[str]:
-    """Get required columns for a given schema type."""
+    """Get required columns for a given schema type (unified naming)."""
     if schema_type == "article":
-        return ["article_id", "title", "pub_date", "source"]
-    elif schema_type == "raw":
         return ["id", "title", "pubDate", "source"]
-    else:
-        return []
+    if schema_type == "raw":
+        return ["id", "title", "pubDate", "source"]
+    return []
 
 
 def get_optional_columns(schema_type: str = "article") -> List[str]:
@@ -304,10 +331,9 @@ def get_optional_columns(schema_type: str = "article") -> List[str]:
     if schema_type == "article":
         all_cols = list(ARTICLE_DTYPES.keys())
         required = get_required_columns("article")
-        return [col for col in all_cols if col not in required]
-    elif schema_type == "raw":
+        return [c for c in all_cols if c not in required]
+    if schema_type == "raw":
         all_cols = list(RAW_ARTICLE_DTYPES.keys())
         required = get_required_columns("raw")
-        return [col for col in all_cols if col not in required]
-    else:
-        return []
+        return [c for c in all_cols if c not in required]
+    return []

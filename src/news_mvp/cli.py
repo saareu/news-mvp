@@ -229,3 +229,130 @@ if __name__ == "__main__":
         app()
     except KeyboardInterrupt:
         sys.exit(130)
+
+# --- Storage / DB sub-commands ---
+storage_app = typer.Typer(help="Storage & database commands")
+app.add_typer(storage_app, name="storage")
+
+
+@storage_app.command("init-db")
+def storage_init_db(
+    ctx: typer.Context,
+    env: str = typer.Option("dev", help="Config environment"),
+    schema: str = typer.Option("schema.sql", help="Schema SQL file"),
+):
+    """Initialize DuckDB database using schema file."""
+    from news_mvp.db import get_connection, init_schema, fetch_one, DBNotAvailable
+
+    settings = Settings.load(f"configs/{env}.yaml")
+    try:
+        conn = get_connection(settings.storage.db_path)
+        init_schema(conn, schema)
+        row = fetch_one(conn, "SELECT COUNT(*) FROM articles") or (0,)
+        console.print(
+            f"[green]Database initialized[/] path={settings.storage.db_path} articles={row[0]}"
+        )
+    except DBNotAvailable as e:  # pragma: no cover
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+
+
+@storage_app.command("load-parquet")
+def storage_load_parquet(
+    ctx: typer.Context,
+    parquet: str = typer.Argument(..., help="Path to parquet file"),
+    env: str = typer.Option("dev", help="Config environment"),
+    store_images: bool = typer.Option(
+        None,
+        help="Override config: store image bytes in DB (imageBlob)",
+    ),
+    remove_after: bool = typer.Option(
+        None,
+        help="Override config: remove parquet file after successful load",
+    ),
+    compress_images: bool = typer.Option(
+        False,
+        help="Compress imageBlob bytes before storing (requires Pillow)",
+    ),
+    image_format: str = typer.Option(
+        "webp", help="Image format used when --compress-images is set"
+    ),
+):
+    """Load a parquet file (unified schema) into the articles table."""
+    from news_mvp.db import get_connection, load_parquet_into_articles, DBNotAvailable
+
+    settings = Settings.load(f"configs/{env}.yaml")
+    if store_images is None:
+        store_images = settings.storage.store_images_in_db
+    if remove_after is None:
+        remove_after = settings.storage.remove_parquet_after_load
+    try:
+        conn = get_connection(settings.storage.db_path)
+        inserted = load_parquet_into_articles(
+            conn,
+            parquet,
+            store_images=store_images,
+            remove_after=bool(remove_after),
+            compress_images=bool(compress_images),
+            image_format=image_format,
+        )
+        console.print(
+            f"[green]Loaded parquet[/] file={parquet} rows={inserted} images={'yes' if store_images else 'no'} removed={'yes' if remove_after else 'no'}"
+        )
+    except DBNotAvailable as e:  # pragma: no cover
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+
+
+@storage_app.command("stats")
+def storage_stats(
+    ctx: typer.Context,
+    env: str = typer.Option("dev", help="Config environment"),
+):
+    """Show basic database statistics."""
+    from news_mvp.db import get_connection, fetch_one, DBNotAvailable
+
+    settings = Settings.load(f"configs/{env}.yaml")
+    try:
+        conn = get_connection(settings.storage.db_path)
+        total_articles = fetch_one(conn, "SELECT COUNT(*) FROM articles") or (0,)
+        sources = fetch_one(conn, "SELECT COUNT(*) FROM sources") or (0,)
+        console.print(
+            {
+                "db_path": settings.storage.db_path,
+                "articles": total_articles[0],
+                "sources": sources[0],
+            }
+        )
+    except DBNotAvailable as e:  # pragma: no cover
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+
+
+@storage_app.command("retention-cleanup")
+def storage_retention_cleanup(
+    ctx: typer.Context,
+    env: str = typer.Option("dev", help="Config environment"),
+    root: str = typer.Option(
+        None, help="Root directory to clean (defaults to data root)"
+    ),
+    pattern: str = typer.Option("**/*.parquet", help="Glob pattern for parquet files"),
+    days: int = typer.Option(
+        None, help="Retention in days; defaults to settings.storage.retention_days"
+    ),
+):
+    """Delete parquet files older than retention threshold."""
+    from news_mvp.db import cleanup_old_parquet
+
+    settings = Settings.load(f"configs/{env}.yaml")
+    root_path = root or str(Paths.data_root())
+    retention_days = (
+        days if days is not None else (settings.storage.retention_days or 0)
+    )
+    if retention_days <= 0:
+        console.print("[yellow]Retention disabled or not set[/]")
+        raise typer.Exit(code=0)
+    deleted = cleanup_old_parquet(
+        root_path, pattern=pattern, retention_days=retention_days
+    )
+    console.print({"deleted": len(deleted)})

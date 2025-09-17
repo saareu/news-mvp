@@ -71,7 +71,7 @@ def validate(path: str) -> int:
         return 2
 
     # Check for non-null values in required columns
-    not_null_ok = all(df[c].notna().all() for c in required_cols)
+    not_null_ok = bool(all(df[c].notna().all() for c in required_cols))
 
     # Check for unique IDs
     unique_ok = df["id"].nunique() == total
@@ -112,7 +112,7 @@ def validate(path: str) -> int:
         # Only validate non-null guid values
         guid_series = df["guid"].dropna().astype(str)
         if len(guid_series) > 0:
-            guids_ok = guid_series.apply(lambda v: bool(url_re.match(v))).all()
+            guids_ok = bool(guid_series.apply(lambda v: bool(url_re.match(v))).all())
 
     # Use schema validation for additional checks
     try:

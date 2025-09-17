@@ -2,8 +2,10 @@ README.md
 pyproject.toml
 src/news_mvp/__init__.py
 src/news_mvp/cli.py
+src/news_mvp/db.py
 src/news_mvp/logging_setup.py
 src/news_mvp/paths.py
+src/news_mvp/schemas.py
 src/news_mvp/settings.py
 src/news_mvp.egg-info/PKG-INFO
 src/news_mvp.egg-info/SOURCES.txt
@@ -33,6 +35,13 @@ src/news_mvp/etl/transform/postprocess_csv.py
 src/news_mvp/etl/transform/xml_to_json.py
 src/news_mvp/utils/__init__.py
 tests/test_boot.py
+tests/test_db_helpers.py
+tests/test_db_upsert.py
+tests/test_end_to_end_load.py
+tests/test_etl_config.py
 tests/test_etl_dry.py
 tests/test_ge_validate.py
+tests/test_image_compression.py
 tests/test_ingest_config.py
+tests/test_paths.py
+tests/test_structured_logging.py

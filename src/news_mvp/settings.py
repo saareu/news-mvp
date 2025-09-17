@@ -23,6 +23,27 @@ class IngestConfig(BaseModel):
     parallel_workers: int = 2
 
 
+class StorageConfig(BaseModel):
+    """Configuration related to storage & database loading workflow.
+
+    Attributes:
+        store_images_in_db: If True, load raw image bytes into `imageBlob` column.
+        remove_parquet_after_load: If True, delete parquet files after successful DB load.
+        image_compression: Optional compression strategy for images when storing bytes
+            (placeholder for future implementation, e.g., 'jpeg', 'webp'). If None, store
+            original bytes.
+        db_path: Relative path to DuckDB database file.
+        schema_file: Path to SQL schema definition used during initialization.
+    """
+
+    store_images_in_db: bool = False
+    remove_parquet_after_load: bool = False
+    image_compression: str | None = None
+    db_path: str = "data/db/news_mvp.duckdb"
+    schema_file: str = "schema.sql"
+    retention_days: int | None = None  # if set, parquet older than this are removable
+
+
 # … existing models …
 class EtlSource(BaseModel):
     rss: str | None = None
@@ -59,6 +80,7 @@ class Settings(BaseSettings):
     runtime: RuntimeConfig = RuntimeConfig()
     logging: LoggingConfig = LoggingConfig()
     ingest: IngestConfig = IngestConfig()
+    storage: StorageConfig = StorageConfig()
 
     @staticmethod
     def _deep_update(d: dict, u: dict) -> dict:

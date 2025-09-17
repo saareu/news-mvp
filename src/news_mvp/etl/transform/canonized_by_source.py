@@ -202,6 +202,7 @@ def build_canonical_rows(
     fieldnames: List[str],
     source: str,
     source_col_name: str,
+    force_tz_offset: int | None = None,
 ) -> Tuple[List[str], List[Dict[str, str]]]:
     # canonical columns order defined by mapping_rows 'canonical' values
     canonical_cols = [r["canonical"] for r in mapping_rows]
@@ -240,9 +241,7 @@ def build_canonical_rows(
         # normalize pubDate if present
         if out.get("pubDate"):
             out["pubDate"] = (
-                normalize_pubdate(
-                    out["pubDate"], force_tz_offset=build_canonical_rows.force_tz_offset
-                )
+                normalize_pubdate(out["pubDate"], force_tz_offset=force_tz_offset)
                 or out["pubDate"]
             )
 
@@ -354,10 +353,14 @@ def main(argv=None) -> int:
         reader = csv.DictReader(f)
         input_rows = [r for r in reader]
 
-    # Pass force_tz_offset to build_canonical_rows via function attribute (hacky but avoids changing many signatures)
-    build_canonical_rows.force_tz_offset = args.force_tz_offset
+    # Pass force_tz_offset to build_canonical_rows as a parameter
     canonical_cols, out_rows = build_canonical_rows(
-        input_rows, mapping_rows, fieldnames, source, source_col_name
+        input_rows,
+        mapping_rows,
+        fieldnames,
+        source,
+        source_col_name,
+        args.force_tz_offset,
     )
 
     # build output path

@@ -37,23 +37,30 @@ CREATE TABLE IF NOT EXISTS tags (
 
 -- Main articles table
 CREATE TABLE IF NOT EXISTS articles (
-    article_id VARCHAR PRIMARY KEY,
+    id VARCHAR PRIMARY KEY,
     title VARCHAR NOT NULL,
+    pubDate TIMESTAMP NOT NULL,
+    source_id INTEGER REFERENCES sources(id) NOT NULL,
     description TEXT,
     category VARCHAR,
-    pub_date TIMESTAMP NOT NULL,
     tags VARCHAR[],  -- DuckDB array type
     creator VARCHAR,
-    source_id INTEGER REFERENCES sources(id),
     language VARCHAR(2) DEFAULT 'he',
+    image VARCHAR,
+    imageCaption TEXT,
+    imageCredit VARCHAR,
+    imageName VARCHAR,
+    imageBlob BLOB,
+    guid VARCHAR,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    batch_hour INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Article tags junction table
 CREATE TABLE IF NOT EXISTS article_tags (
-    article_id VARCHAR REFERENCES articles(article_id),
+    article_id VARCHAR REFERENCES articles(id),
     tag_id INTEGER REFERENCES tags(id),
     PRIMARY KEY (article_id, tag_id)
 );
@@ -61,7 +68,7 @@ CREATE TABLE IF NOT EXISTS article_tags (
 -- Images table
 CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY,
-    article_id VARCHAR REFERENCES articles(article_id),
+    article_id VARCHAR REFERENCES articles(id),
     filename VARCHAR NOT NULL,
     original_path VARCHAR,
     stored_path VARCHAR NOT NULL,
@@ -86,19 +93,32 @@ CREATE TABLE IF NOT EXISTS etl_batches (
     processing_time_seconds FLOAT
 );
 
+-- Embeddings (draft schema) - one vector per article (latest)
+-- vector stored as FLOAT[]; model info for reproducibility
+CREATE TABLE IF NOT EXISTS embeddings (
+    article_id VARCHAR REFERENCES articles(id),
+    model VARCHAR NOT NULL,
+    dim INTEGER NOT NULL,
+    vector FLOAT[],
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (article_id, model)
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+
 -- ===========================================
 -- INDEXES
 -- ===========================================
 
 -- Articles indexes
-CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
+CREATE INDEX IF NOT EXISTS idx_articles_pubDate ON articles(pubDate);
 CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source_id);
 CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category);
 CREATE INDEX IF NOT EXISTS idx_articles_title ON articles(title);
 
 -- Composite indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_articles_source_date ON articles(source_id, pub_date DESC);
-CREATE INDEX IF NOT EXISTS idx_articles_date_category ON articles(pub_date DESC, category);
+CREATE INDEX IF NOT EXISTS idx_articles_source_pubDate ON articles(source_id, pubDate DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_pubDate_category ON articles(pubDate DESC, category);
 CREATE INDEX IF NOT EXISTS idx_articles_source_category ON articles(source_id, category);
 
 -- Tags indexes
@@ -135,7 +155,7 @@ SELECT
     a.*,
     CASE
         WHEN a.tags IS NOT NULL AND LENGTH(a.tags) > 0
-        THEN ARRAY_JOIN(a.tags, ', ')
+        THEN array_to_string(a.tags, ', ')
         ELSE ''
     END as tags_string,
     ARRAY_LENGTH(a.tags) as tags_count
@@ -144,17 +164,17 @@ FROM articles a;
 -- Recent articles view
 CREATE VIEW IF NOT EXISTS recent_articles AS
 SELECT * FROM articles
-WHERE pub_date >= (CURRENT_TIMESTAMP - INTERVAL 24 HOURS)
-ORDER BY pub_date DESC;
+WHERE pubDate >= (CURRENT_TIMESTAMP - INTERVAL 24 HOUR)
+ORDER BY pubDate DESC;
 
 -- Article statistics by source
 CREATE VIEW IF NOT EXISTS article_stats_by_source AS
 SELECT
     s.name as source_name,
-    COUNT(a.article_id) as total_articles,
+    COUNT(a.id) as total_articles,
     COUNT(DISTINCT a.category) as categories_count,
-    MIN(a.pub_date) as oldest_article,
-    MAX(a.pub_date) as newest_article,
+    MIN(a.pubDate) as oldest_article,
+    MAX(a.pubDate) as newest_article,
     AVG(LENGTH(a.title)) as avg_title_length,
     AVG(LENGTH(a.description)) as avg_description_length
 FROM sources s
@@ -166,35 +186,51 @@ GROUP BY s.id, s.name;
 -- ===========================================
 
 -- Function to get articles by date range
-CREATE OR REPLACE MACRO get_articles_by_date(start_date, end_date) AS
-SELECT * FROM articles
-WHERE pub_date BETWEEN start_date AND end_date
-ORDER BY pub_date DESC;
+CREATE OR REPLACE MACRO get_articles_by_date(start_date, end_date) AS TABLE (
+    SELECT * FROM articles
+    WHERE pubDate BETWEEN start_date AND end_date
+    ORDER BY pubDate DESC
+);
 
 -- Function to get articles by source and date
-CREATE OR REPLACE MACRO get_articles_by_source_date(source_name, start_date, end_date) AS
-SELECT a.* FROM articles a
-JOIN sources s ON a.source_id = s.id
-WHERE s.name = source_name
-AND a.pub_date BETWEEN start_date AND end_date
-ORDER BY a.pub_date DESC;
+CREATE OR REPLACE MACRO get_articles_by_source_date(source_name, start_date, end_date) AS TABLE (
+    SELECT a.* FROM articles a
+    JOIN sources s ON a.source_id = s.id
+    WHERE s.name = source_name
+    AND a.pubDate BETWEEN start_date AND end_date
+    ORDER BY a.pubDate DESC
+);
 
 -- Function to search articles by keyword
-CREATE OR REPLACE MACRO search_articles(keyword) AS
-SELECT * FROM articles
-WHERE LOWER(title) LIKE LOWER('%' || keyword || '%')
-   OR LOWER(description) LIKE LOWER('%' || keyword || '%')
-ORDER BY pub_date DESC;
+CREATE OR REPLACE MACRO search_articles(keyword) AS TABLE (
+     SELECT * FROM articles
+     WHERE LOWER(title) LIKE LOWER('%' || keyword || '%')
+         OR LOWER(description) LIKE LOWER('%' || keyword || '%')
+     ORDER BY pubDate DESC
+);
 
 -- ===========================================
 -- INITIAL DATA
 -- ===========================================
 
 -- Insert initial sources
-INSERT OR IGNORE INTO sources (name, display_name, rss_url, website_url, language) VALUES
-('ynet', 'Ynet', 'https://www.ynet.co.il/Integration/StoryRss2.xml', 'https://www.ynet.co.il', 'he'),
-('hayom', 'Israel Hayom', 'https://www.israelhayom.co.il/rss.xml', 'https://www.israelhayom.co.il', 'he'),
-('haaretz', 'Haaretz', 'https://www.haaretz.co.il/rss.xml', 'https://www.haaretz.co.il', 'he');
+INSERT OR IGNORE INTO sources (id, name, display_name, rss_url, website_url, language) VALUES
+(1, 'ynet', 'Ynet', 'https://www.ynet.co.il/Integration/StoryRss2.xml', 'https://www.ynet.co.il', 'he'),
+(2, 'hayom', 'Israel Hayom', 'https://www.israelhayom.co.il/rss.xml', 'https://www.israelhayom.co.il', 'he'),
+(3, 'haaretz', 'Haaretz', 'https://www.haaretz.co.il/rss.xml', 'https://www.haaretz.co.il', 'he');
+
+-- Schema versioning
+CREATE TABLE IF NOT EXISTS schema_version (
+    version VARCHAR NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Embeddings + recent articles view (24 hours)
+CREATE VIEW IF NOT EXISTS mv_recent_articles_with_embeddings AS
+SELECT a.id, a.title, a.pubDate, a.source_id, e.model, e.dim, e.vector
+FROM articles a
+JOIN embeddings e ON e.article_id = a.id
+WHERE a.pubDate >= (CURRENT_TIMESTAMP - INTERVAL 24 HOUR);
 
 -- ===========================================
 -- SAMPLE QUERIES
@@ -217,9 +253,8 @@ SELECT * FROM article_stats_by_source;
 SELECT * FROM articles_with_source LIMIT 5;
 
 -- Get articles with tags as string
-SELECT article_id, title, tags_string, tags_count
+SELECT id, title, tags_string, tags_count
 FROM articles_with_tags
 WHERE tags_count > 0
 LIMIT 10;
-*/</content>
-<parameter name="filePath">c:\code\news-mvp\schema.sql
+*/
