@@ -29,13 +29,32 @@ import httpx
 from bs4 import BeautifulSoup
 
 
-PIC_DIR = os.path.join(os.getcwd(), "data", "pics")
+# Get the repository root directory relative to this script's location
+# This ensures the path works correctly in GitHub Actions and other CI environments
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+)
+PIC_DIR = os.path.join(REPO_ROOT, "data", "pics")
 DEFAULT_TIMEOUT = 10.0  # seconds
 MAX_RETRIES = 2
 
 
+def get_relative_path_from_repo_root(absolute_path: str) -> str:
+    """Get a relative path from the repository root to the given absolute path.
+
+    This ensures consistent path handling in GitHub Actions and other CI environments.
+    """
+    return os.path.relpath(absolute_path, REPO_ROOT).replace("\\", "/")
+
+
 def ensure_pic_dir() -> None:
     os.makedirs(PIC_DIR, exist_ok=True)
+    # Debug logging for CI troubleshooting (only in debug mode)
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        print(f"DEBUG: PIC_DIR resolved to: {PIC_DIR}")
+        print(f"DEBUG: Repository root: {REPO_ROOT}")
+        print(f"DEBUG: Current working directory: {os.getcwd()}")
 
 
 def sanitize_html(value: Optional[str]) -> str:
@@ -71,32 +90,27 @@ def filename_from_id_or_fallback(
 ) -> Tuple[str, str]:
     """Return (filename_with_ext, basename_no_ext).
 
-    Prefer row['id'] as basename. Sanitize it. If missing, fall back to deterministic
-    hashed name. Preserve extension when available. If a file with the chosen
-    name already exists, append a short hash suffix to avoid accidental overwrite.
+    Use ONLY the article ID as basename with the file extension from URL.
+    Format: article_id.extension
+    Article ID is non-nullable - raises ValueError if missing.
     """
+    # Get file extension from URL
     parsed_ext = os.path.splitext(url.split("?")[0])[-1].lower()
     if parsed_ext and re.match(r"^\.[a-z0-9]{1,6}$", parsed_ext):
         ext = parsed_ext
     else:
         ext = ".jpg"
 
+    # Article ID is non-nullable - fail if missing
     raw_id = (row.get("id") or "").strip()
-    if raw_id:
-        # sanitize id for filesystem
-        safe_id = re.sub(r"[^0-9A-Za-z_-]", "_", raw_id)
-        basename = safe_id
-    else:
-        # fallback
-        basename = f"{re.sub(r'[^0-9A-Za-z_-]', '', source) or 'src'}_{idx:04d}_{hashlib.sha1(url.encode('utf-8')).hexdigest()[:8]}"
+    if not raw_id:
+        raise ValueError(
+            f"Article ID is missing or empty for row {idx} in source {source}. Article ID is required for image naming."
+        )
 
+    # Use the raw ID as-is (no sanitization needed for filesystem since we're checking existence)
+    basename = raw_id
     filename = f"{basename}{ext}"
-    dest = os.path.join(PIC_DIR, filename)
-    if os.path.exists(dest):
-        # append short url-hash to avoid overwriting unrelated files
-        h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:6]
-        filename = f"{basename}_{h}{ext}"
-        basename = f"{basename}_{h}"
 
     return filename, basename
 
@@ -204,6 +218,10 @@ def process_csv(
         if "imageName" not in out_fieldnames:
             out_fieldnames.append("imageName")
 
+        # ensure per-source pics directory exists (images will be stored in data/pics/{source})
+        pic_dir_src = os.path.join(PIC_DIR, source_name)
+        os.makedirs(pic_dir_src, exist_ok=True)
+
         # sanitize text fields and (optionally) download images
         for idx, row in enumerate(rows, start=1):
             stats["rows"] += 1
@@ -223,12 +241,30 @@ def process_csv(
                 except Exception:
                     imageName_remote = ""
 
-                filename, basename = filename_from_id_or_fallback(
-                    row, idx, img_url, source_name
-                )
-                dest = os.path.join(PIC_DIR, filename)
-                # for sync path we'll download immediately; for async path the caller will handle
-                # set provisional values; actual download may change stats
+                try:
+                    filename, basename = filename_from_id_or_fallback(
+                        row, idx, img_url, source_name
+                    )
+                except ValueError as e:
+                    print(f"ERROR: {e}")
+                    row["imageName"] = ""
+                    row["imageNameRemote"] = ""
+                    stats["images_missing"] += 1
+                    continue
+
+                dest = os.path.join(pic_dir_src, filename)
+
+                # Check if image already exists BEFORE setting up download
+                if os.path.exists(dest):
+                    # Image already exists, use it without downloading
+                    row["image"] = get_relative_path_from_repo_root(dest)
+                    row["imageName"] = basename
+                    row["imageNameRemote"] = imageName_remote
+                    # Don't increment images_downloaded since we didn't download
+                    # Don't set _pending_* fields since no download needed
+                    continue
+
+                # Set up for download
                 row.setdefault("image", "")
                 row.setdefault("imageName", "")
                 row["_pending_img_url"] = img_url
@@ -260,18 +296,10 @@ def perform_sync_downloads(rows: List[Dict[str, str]], stats: Dict[str, int]) ->
             row["imageName"] = ""
             stats["images_missing"] += 1
             continue
-        # Check if file already exists (avoid redownload)
-        if os.path.exists(dest):
-            row["image"] = os.path.relpath(dest).replace("\\", "/")
-            if row.get("imageNameRemote"):
-                row["imageName"] = str(row.get("imageNameRemote"))
-            else:
-                row["imageName"] = str(basename)
-            # Do not increment images_downloaded, as it was not downloaded now
-            continue
+        # No need to check existence here - already checked in process_csv
         succeeded = download_image(img_url, dest)
         if succeeded:
-            row["image"] = os.path.relpath(dest).replace("\\", "/")
+            row["image"] = get_relative_path_from_repo_root(dest)
             if row.get("imageNameRemote"):
                 row["imageName"] = str(row.get("imageNameRemote"))
             else:
@@ -394,7 +422,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"rows={stats['rows']}, images_downloaded={stats['images_downloaded']}, images_missing={stats['images_missing']}"
     )
     # Print the output CSV relative path as the last line so callers/CI can capture it
-    output_rel = os.path.relpath(output_path).replace("\\", "/")
+    output_rel = get_relative_path_from_repo_root(output_path)
     print(output_rel)
     return 0
 
