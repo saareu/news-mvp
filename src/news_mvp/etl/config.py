@@ -65,31 +65,32 @@ try:
     from news_mvp.paths import Paths
 
     DATA_DIR = Path(_get("DATA_DIR", Paths.data_root()))
+    RAW_DIR = Path(_get("RAW_DIR", Paths.raw()))
+    CANON_DIR = Path(_get("CANON_DIR", Paths.canonical()))
+    MASTER_DIR = Path(_get("MASTER_DIR", Paths.master()))
+
+    # Source-specific directories
+    RAW_YNET_DIR = RAW_DIR / "ynet"
+    RAW_HAYOM_DIR = RAW_DIR / "hayom"
+    RAW_HAARETZ_DIR = RAW_DIR / "haaretz"
+
+    CANON_YNET_DIR = CANON_DIR / "ynet"
+    CANON_HAYOM_DIR = CANON_DIR / "hayom"
+    CANON_HAARETZ_DIR = CANON_DIR / "haaretz"
+
 except ImportError:
+    # Fallback to old behavior if Paths is not available
     DATA_DIR = Path(_get("DATA_DIR", BASE_DIR / "data"))
+    RAW_DIR = Path(_get("RAW_DIR", DATA_DIR / "raw"))
+    CANON_DIR = Path(_get("CANON_DIR", DATA_DIR / "canonical"))
+    MASTER_DIR = Path(_get("MASTER_DIR", DATA_DIR / "master"))
 
-RAW_DIR = Path(_get("RAW_DIR", DATA_DIR / "raw"))
-RAW_YNET_DIR = Path(_get("RAW_YNET_DIR", RAW_DIR / "ynet"))
-RAW_HAYOM_DIR = Path(_get("RAW_HAYOM_DIR", RAW_DIR / "hayom"))
-RAW_HAARETZ_DIR = Path(_get("RAW_HAARETZ_DIR", RAW_DIR / "haaretz"))
-CANON_DIR = Path(_get("CANON_DIR", DATA_DIR / "canonical"))
-CANON_YNET_DIR = Path(_get("CANON_YNET_DIR", CANON_DIR / "ynet"))
-CANON_HAYOM_DIR = Path(_get("CANON_HAYOM_DIR", CANON_DIR / "hayom"))
-CANON_HAARETZ_DIR = Path(_get("CANON_HAARETZ_DIR", CANON_DIR / "haaretz"))
-MASTER_DIR = Path(_get("MASTER_DIR", DATA_DIR / "master"))
-
-DATA_DIR = BASE_DIR / "data"
-RAW_DIR = DATA_DIR / "raw"
-RAW_YNET_DIR = RAW_DIR / "ynet"
-RAW_HAYOM_DIR = RAW_DIR / "hayom"
-RAW_HAARETZ_DIR = RAW_DIR / "haaretz"
-
-CANON_DIR = DATA_DIR / "canonical"
-CANON_YNET_DIR = CANON_DIR / "ynet"
-CANON_HAYOM_DIR = CANON_DIR / "hayom"
-CANON_HAARETZ_DIR = CANON_DIR / "haaretz"
-
-MASTER_DIR = DATA_DIR / "master"
+    RAW_YNET_DIR = Path(_get("RAW_YNET_DIR", RAW_DIR / "ynet"))
+    RAW_HAYOM_DIR = Path(_get("RAW_HAYOM_DIR", RAW_DIR / "hayom"))
+    RAW_HAARETZ_DIR = Path(_get("RAW_HAARETZ_DIR", RAW_DIR / "haaretz"))
+    CANON_YNET_DIR = Path(_get("CANON_YNET_DIR", CANON_DIR / "ynet"))
+    CANON_HAYOM_DIR = Path(_get("CANON_YNET_DIR", CANON_DIR / "hayom"))
+    CANON_HAARETZ_DIR = Path(_get("CANON_HAARETZ_DIR", CANON_DIR / "haaretz"))
 
 # Source-specific master files
 MASTER_YNET_CSV = Path(_get("MASTER_YNET_CSV", MASTER_DIR / "master_ynet.csv"))

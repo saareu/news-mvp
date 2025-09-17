@@ -136,6 +136,25 @@ class RawArticleModel(BaseModel):
     raw_xml: Optional[str] = Field(None, description="Raw XML data")
 
 
+class CSVArticleModel(BaseModel):
+    """Pydantic model for CSV article data validation."""
+
+    id: str = Field(..., description="Article ID")
+    title: str = Field(..., description="Article title")
+    description: Optional[str] = Field(None, description="Article description")
+    category: Optional[str] = Field(None, description="Article category")
+    image: Optional[str] = Field(None, description="Image path")
+    imageCaption: Optional[str] = Field(None, description="Image caption")
+    imageCredit: Optional[str] = Field(None, description="Image credit")
+    pubDate: str = Field(..., description="Publication date string")
+    tags: Optional[str] = Field(None, description="Tags as pipe-separated string")
+    creator: Optional[str] = Field(None, description="Article creator")
+    source: str = Field(..., description="Data source")
+    language: Optional[str] = Field("he", description="Article language")
+    imageName: Optional[str] = Field(None, description="Image filename")
+    guid: Optional[str] = Field(None, description="RSS feed unique identifier")
+
+
 # ===== CSV COLUMN DEFINITIONS =====
 
 CSV_COLUMNS = {
@@ -202,11 +221,33 @@ def validate_article_data(df: pd.DataFrame) -> pd.DataFrame:
                 else:
                     row_dict[col] = val
 
-            article = ArticleModel(**row_dict)
+            # First validate against CSV model
+            csv_article = CSVArticleModel(**row_dict)
+
+            # Transform to ArticleModel format
+            article_dict = {
+                "article_id": csv_article.id,
+                "title": csv_article.title,
+                "description": csv_article.description,
+                "category": csv_article.category,
+                "pub_date": pd.to_datetime(csv_article.pubDate),
+                "tags": csv_article.tags.split("|") if csv_article.tags else [],
+                "creator": csv_article.creator,
+                "source": csv_article.source,
+                "language": csv_article.language or "he",
+                "image_path": csv_article.image,
+                "image_caption": csv_article.imageCaption,
+                "image_credit": csv_article.imageCredit,
+                "image_name": csv_article.imageName,
+                "guid": csv_article.guid,
+            }
+
+            # Validate against ArticleModel
+            article = ArticleModel(**article_dict)
             validated_articles.append(article.dict())
         except Exception as e:
             logger.warning(
-                f"Invalid article data (ID: {row.get('article_id', 'unknown')}): {e}"
+                f"Invalid article data (ID: {row.get('id', 'unknown')}): {e}"
             )
             continue
 

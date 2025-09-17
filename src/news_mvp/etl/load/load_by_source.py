@@ -23,8 +23,9 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from news_mvp.paths import Paths
 
-DEFAULT_MASTER = os.path.join("data", "master")
+DEFAULT_MASTER = str(Paths.master())
 
 
 def infer_source_from_input(path: str) -> str:

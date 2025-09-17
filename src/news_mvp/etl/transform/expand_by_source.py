@@ -34,7 +34,9 @@ except Exception as exc:  # pragma: no cover - hard error path
         "beautifulsoup4 is required by expand_by_source.py but is not installed"
     ) from exc
 
-LOG = logging.getLogger("expand_by_source")
+from news_mvp.logging_setup import get_logger
+
+LOG = get_logger(__name__)
 
 HTML_DETECT_RE = re.compile(r"<[^>]+>")
 JSON_LIKE_RE = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)

@@ -27,6 +27,8 @@ import pyarrow.parquet as pq
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from news_mvp.paths import Paths
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -39,7 +41,9 @@ class DatabaseLoader:
 
     def __init__(self, db_path: str = "data/db/news_mvp.duckdb"):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Use centralized paths for database directory
+        db_dir = Paths.data_root() / "db"
+        db_dir.mkdir(parents=True, exist_ok=True)
 
         # Connect to database
         self.conn = duckdb.connect(str(self.db_path))
@@ -291,7 +295,7 @@ class DatabaseLoader:
 
     def load_source(self, source_name: str):
         """Load data for a specific source."""
-        csv_path = Path("data/master") / f"master_{source_name}.csv"
+        csv_path = Paths.master() / f"master_{source_name}.csv"
         if csv_path.exists():
             self.load_articles_from_csv(csv_path, source_name)
         else:
@@ -359,7 +363,9 @@ def main():
     parser.add_argument("--all-sources", action="store_true", help="Load all sources")
     parser.add_argument("--parquet", help="Path to Parquet file to load")
     parser.add_argument(
-        "--db-path", default="data/db/news_mvp.duckdb", help="Database path"
+        "--db-path",
+        default=str(Paths.data_root() / "db" / "news_mvp.duckdb"),
+        help="Database path",
     )
     parser.add_argument("--stats", action="store_true", help="Show database statistics")
 

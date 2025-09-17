@@ -45,7 +45,9 @@ try:
 except Exception:
     langdetect_detect = None
 
-LOG = logging.getLogger("canonized_by_source")
+from news_mvp.logging_setup import get_logger
+
+LOG = get_logger(__name__)
 
 
 def detect_source_from_path(p: Path) -> str:

@@ -26,7 +26,9 @@ from typing import Optional
 
 from news_mvp.etl.config import BASE_DIR
 
-LOG = logging.getLogger("kan_fetcher")
+from news_mvp.logging_setup import get_logger
+
+LOG = get_logger(__name__)
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
