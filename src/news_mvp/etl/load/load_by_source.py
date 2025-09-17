@@ -22,10 +22,10 @@ import csv
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
+from news_mvp.settings import get_runtime_csv_encoding
 
-from news_mvp.paths import Paths
 
-DEFAULT_MASTER = str(Paths.master())
+DEFAULT_MASTER = os.path.join("data", "master")
 
 
 def infer_source_from_input(path: str) -> str:
@@ -50,14 +50,16 @@ def infer_source_from_input(path: str) -> str:
 
 
 def read_csv(path: str) -> List[Dict[str, str]]:
-    with open(path, newline="", encoding="utf-8") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(path, newline="", encoding=csv_enc) as f:
         reader = csv.DictReader(f)
         return list(reader)
 
 
 def write_csv(path: str, rows: List[Dict[str, str]], fieldnames: List[str]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(path, "w", newline="", encoding=csv_enc) as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in rows:
@@ -86,18 +88,32 @@ def merge_master(input_path: str, master_path: str) -> str:
     input_rows = read_csv(input_path)
     master_rows = read_csv(master_path) if os.path.exists(master_path) else []
 
-    # build index by id and guid from master
+    # Validation: at this stage every input row must have an 'article_id'
+    for i, r in enumerate(input_rows, start=1):
+        id_val = (r.get("article_id") or "").strip()
+        if not id_val:
+            raise RuntimeError(
+                f"Missing required 'article_id' in input {input_path} row {i}: {repr(r)}"
+            )
+    for i, r in enumerate(master_rows, start=1):
+        id_val = (r.get("article_id") or "").strip()
+        if not id_val:
+            raise RuntimeError(
+                f"Missing required 'article_id' in master {master_path} row {i}: {repr(r)}"
+            )
+
+    # build index by article_id from master (do NOT use guid as dedupe key)
     seen_ids = {}
     merged: List[Dict[str, str]] = []
     for r in master_rows:
-        key = r.get("id") or r.get("guid")
+        key = r.get("article_id")
         if key:
             seen_ids[key] = r
         merged.append(r)
 
-    # merge input rows: if id/guid exists replace the master row, else append
+    # merge input rows: if article_id exists replace the master row, else append
     for r in input_rows:
-        key = r.get("id") or r.get("guid")
+        key = r.get("article_id")
         if key and key in seen_ids:
             # replace fields in-place (prefer incoming values)
             existing = seen_ids[key]
@@ -105,20 +121,20 @@ def merge_master(input_path: str, master_path: str) -> str:
         else:
             merged.append(r)
 
-    # dedupe by (id) or guid preserving the last occurrence (which should be the incoming)
-    # then remove `guid` from rows so masters do not include it.
+    # dedupe by (article_id) or guid preserving the last occurrence (which should be the incoming)
     deduped = {}
     for r in merged:
-        key = r.get("id") or r.get("guid") or os.urandom(8).hex()
-        # make a shallow copy so we can safely remove guid later
+        # All rows must have article_id at this stage (validated above). Use article_id only.
+        key = r.get("article_id")
         deduped[key] = dict(r)
 
     rows = list(deduped.values())
 
-    # sort by pubDate descending
-    rows.sort(key=lambda r: parse_pubdate(r.get("pubDate")), reverse=True)
+    # sort by pubDate descending (use new schema field 'pub_date')
+    rows.sort(key=lambda r: parse_pubdate(r.get("pub_date")), reverse=True)
 
     # determine fieldnames as union of all keys preserving order from master then input
+    # include `guid` so the master file contains it
     fieldnames = []
     for src in master_rows + input_rows:
         for k in src.keys():

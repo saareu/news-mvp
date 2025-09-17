@@ -12,6 +12,7 @@ paths:
   canonical: data/canonical
   master: data/master
   pics: data/pics
+csv_encoding: "utf-8-sig"
 etl:
   enabled: true
   dry_run: false

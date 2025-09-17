@@ -26,6 +26,7 @@ import re
 import ast
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Sequence
+from news_mvp.settings import get_runtime_csv_encoding
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
@@ -34,9 +35,7 @@ except Exception as exc:  # pragma: no cover - hard error path
         "beautifulsoup4 is required by expand_by_source.py but is not installed"
     ) from exc
 
-from news_mvp.logging_setup import get_logger
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("expand_by_source")
 
 HTML_DETECT_RE = re.compile(r"<[^>]+>")
 JSON_LIKE_RE = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)
@@ -290,7 +289,8 @@ def main(argv=None) -> int:
         LOG.error("Input file does not exist: %s", input_path)
         return 1
 
-    with open(input_path, "r", encoding="utf-8-sig", newline="") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(input_path, "r", encoding=csv_enc, newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
         header = reader.fieldnames or []
@@ -321,7 +321,8 @@ def main(argv=None) -> int:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(output_path, "w", encoding=csv_enc, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=new_fieldnames)
         writer.writeheader()
         for r in new_rows:

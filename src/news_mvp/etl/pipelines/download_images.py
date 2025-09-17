@@ -1,7 +1,7 @@
 """Download images and produce a master CSV for any source.
 
 Reads an enhanced CSV (produced by the enhancer), sanitizes HTML in text fields,
-downloads article images into `pic/`, fills missing `imageCredit` with the
+downloads article images into `pic/`, fills missing `image_Credit` with the
 source name and writes a master CSV. Designed to be CI-friendly for GitHub
 Actions: deterministic filenames, short timeouts, and limited retries.
 
@@ -10,7 +10,7 @@ Usage (from repo root):
 
 Optional flags:
   --output  Path to write the master CSV. If omitted a name is generated next to the input.
-  --source  Source name to use to fill missing imageCredit (defaults to source column or filename).
+  --source  Source name to use to fill missing image_Credit (defaults to source column or filename).
 
 """
 
@@ -90,8 +90,16 @@ def filename_from_id_or_fallback(
 ) -> Tuple[str, str]:
     """Return (filename_with_ext, basename_no_ext).
 
-    Use ONLY the article ID as basename with the file extension from URL.
-    Format: article_id.extension
+    Generate a short, deterministic basename from the article `id` and
+    `pubDate` to avoid very long filenames. The format is:
+
+        HHMMSS{first3}{last3}
+
+    where `HHMMSS` comes from the article `pubDate` time (local or with
+    timezone info if present), and `{first3}`/`{last3}` are the first 3
+    and last 3 characters of the article id. The original file extension
+    from the `url` is preserved. If `pubDate` is missing or unparsable
+    we fall back to the current UTC time for the HHMMSS portion.
     Article ID is non-nullable - raises ValueError if missing.
     """
     # Get file extension from URL
@@ -102,13 +110,14 @@ def filename_from_id_or_fallback(
         ext = ".jpg"
 
     # Article ID is non-nullable - fail if missing
-    raw_id = (row.get("id") or "").strip()
+    raw_id = (row.get("article_id") or "").strip()
     if not raw_id:
         raise ValueError(
             f"Article ID is missing or empty for row {idx} in source {source}. Article ID is required for image naming."
         )
-
-    # Use the raw ID as-is (no sanitization needed for filesystem since we're checking existence)
+    # Use the article id itself as the deterministic basename. This keeps
+    # recovery simple: filename = <id><ext>. Return both filename and basename
+    # (basename is the id string) so callers can use the basename as an index.
     basename = raw_id
     filename = f"{basename}{ext}"
 
@@ -138,7 +147,9 @@ def download_image(url: str, dest_path: str) -> bool:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             with httpx.Client(
-                timeout=DEFAULT_TIMEOUT, headers=headers, follow_redirects=True
+                timeout=DEFAULT_TIMEOUT,
+                headers=headers,
+                follow_redirects=True,
             ) as client:
                 r = client.get(url)
                 if r.status_code == 200 and r.content:
@@ -181,42 +192,40 @@ def process_csv(
 
     stats = {"rows": 0, "images_downloaded": 0, "images_missing": 0}
 
-    with open(input_path, newline="", encoding="utf-8") as inf:
+    # Read CSV using configured encoding. We assume headers are already
+    # formatted correctly (no BOM/normalization needed) and that callers
+    # use the canonical lower-case column names (e.g., 'id','title','pubDate','image').
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(input_path, newline="", encoding=csv_enc) as inf:
         reader = csv.DictReader(inf)
+        original_fieldnames = [fn for fn in (reader.fieldnames or [])]
         rows = list(reader)
         if not rows:
             print("input CSV has no rows")
-            # return empty structures matching the function's return type
             return [], [], stats
 
         # determine source name
         if source_override:
             source_name = source_override
         else:
-            # look for a 'source' column in the CSV header
-            source_name = reader.fieldnames and (
-                "source" if "source" in reader.fieldnames else None
-            )
-            if isinstance(source_name, str):
-                # if 'source' is a header name we extract first row value
+            # look for a 'source' column in provided headers (case-sensitive per assumption)
+            source_name = None
+            lowered_headers = {f.lower() for f in original_fieldnames}
+            if "source" in lowered_headers:
+                # assume the 'source' header exists and use the value from the first row
                 source_name = rows[0].get("source", "unknown")
-            else:
-                # fallback to filename-based source
+            if not source_name:
                 base = os.path.basename(input_path)
                 source_name = (
                     base.split("_")[0] if "_" in base else os.path.splitext(base)[0]
                 )
 
-        out_fieldnames = (
-            list(reader.fieldnames) if reader.fieldnames else list(rows[0].keys())
-        )
-        # ensure image, imageCredit and imageName columns exist (imageName appended last)
-        if "image" not in out_fieldnames:
-            out_fieldnames.append("image")
-        if "imageCredit" not in out_fieldnames:
-            out_fieldnames.append("imageCredit")
-        if "imageName" not in out_fieldnames:
-            out_fieldnames.append("imageName")
+        # Force output headers to match canonical schema
+        from news_mvp.schemas import schema_fieldnames, Stage
+
+        out_fieldnames: List[str] = schema_fieldnames(Stage.ETL_BEFORE_MERGE)
 
         # ensure per-source pics directory exists (images will be stored in data/pics/{source})
         pic_dir_src = os.path.join(PIC_DIR, source_name)
@@ -225,8 +234,8 @@ def process_csv(
         # sanitize text fields and (optionally) download images
         for idx, row in enumerate(rows, start=1):
             stats["rows"] += 1
-            # sanitize several common textual columns
-            for col in ["title", "description", "category", "creator", "imageCaption"]:
+            # sanitize several common textual columns (normalized to lowercase headers)
+            for col in ["title", "description", "category", "creator", "imagecaption"]:
                 if col in row:
                     row[col] = sanitize_html(row.get(col, ""))
 
@@ -247,8 +256,8 @@ def process_csv(
                     )
                 except ValueError as e:
                     print(f"ERROR: {e}")
-                    row["imageName"] = ""
-                    row["imageNameRemote"] = ""
+                    row["image_name"] = ""
+                    row["imagenameremote"] = ""
                     stats["images_missing"] += 1
                     continue
 
@@ -257,32 +266,38 @@ def process_csv(
                 # Check if image already exists BEFORE setting up download
                 if os.path.exists(dest):
                     # Image already exists, use it without downloading
-                    row["image"] = get_relative_path_from_repo_root(dest)
-                    row["imageName"] = basename
-                    row["imageNameRemote"] = imageName_remote
+                    # We store only the filename in `image` (no path), so the
+                    # image field is recoverable by combining with data/pics/{source}
+                    row["image"] = os.path.basename(dest)
+                    # internal lowercase key for the downloaded filename index
+                    # Only set image_name if a remote original name was found; otherwise keep empty
+                    row["imagenameremote"] = imageName_remote
+                    row["image_name"] = imageName_remote or ""
                     # Don't increment images_downloaded since we didn't download
                     # Don't set _pending_* fields since no download needed
                     continue
 
                 # Set up for download
                 row.setdefault("image", "")
-                row.setdefault("imageName", "")
+                row.setdefault("image_name", "")
                 row["_pending_img_url"] = img_url
                 row["_pending_dest"] = dest
                 row["_pending_basename"] = basename
-                row["imageNameRemote"] = imageName_remote
+                row["imagenameremote"] = imageName_remote
             else:
-                row["imageName"] = ""
-                row["imageNameRemote"] = ""
+                row["image_name"] = ""
+                row["imagenameremote"] = ""
                 stats["images_missing"] += 1
 
-            # fill missing imageCredit with source_name
-            if not row.get("imageCredit"):
-                row["imageCredit"] = source_override or row.get("source") or source_name
+            # fill missing image_Credit with source_name
+            if not row.get("image_credit"):
+                row["image_credit"] = (
+                    source_override or row.get("source") or source_name
+                )
 
         # At this point rows have pending download info in _pending_* if they need download.
         # If sync mode (default) perform downloads now; async mode is handled by caller.
-        return rows, out_fieldnames, stats
+    return rows, out_fieldnames, stats
 
 
 def perform_sync_downloads(rows: List[Dict[str, str]], stats: Dict[str, int]) -> None:
@@ -291,22 +306,23 @@ def perform_sync_downloads(rows: List[Dict[str, str]], stats: Dict[str, int]) ->
         if not img_url:
             continue
         dest = row.get("_pending_dest")
-        basename = row.get("_pending_basename")
         if not dest or not isinstance(dest, str):
-            row["imageName"] = ""
+            row["image_name"] = ""
             stats["images_missing"] += 1
             continue
         # No need to check existence here - already checked in process_csv
         succeeded = download_image(img_url, dest)
         if succeeded:
-            row["image"] = get_relative_path_from_repo_root(dest)
-            if row.get("imageNameRemote"):
-                row["imageName"] = str(row.get("imageNameRemote"))
+            # store only the filename in `image`
+            row["image"] = os.path.basename(dest)
+            # Set image_name only if remote basename is present; otherwise leave empty
+            if row.get("imagenameremote"):
+                row["image_name"] = str(row.get("imagenameremote"))
             else:
-                row["imageName"] = str(basename)
+                row["image_name"] = ""
             stats["images_downloaded"] += 1
         else:
-            row["imageName"] = ""
+            row["image_Name"] = ""
             stats["images_missing"] += 1
 
 
@@ -325,22 +341,22 @@ async def perform_async_downloads(
             if not img_url:
                 return
             dest = row.get("_pending_dest")
-            basename = row.get("_pending_basename")
             if not dest or not isinstance(dest, str):
-                row["imageName"] = ""
+                row["image_Name"] = ""
                 stats["images_missing"] += 1
                 return
             async with sem:
                 ok = await download_image_async(img_url, dest, client)
             if ok:
-                row["image"] = os.path.relpath(dest).replace("\\", "/")
-                if row.get("imageNameRemote"):
-                    row["imageName"] = row["imageNameRemote"]
+                # store only the filename in `image`
+                row["image"] = os.path.basename(dest)
+                if row.get("imagenameremote"):
+                    row["image_name"] = row["imagenameremote"]
                 else:
-                    row["imageName"] = str(basename)
+                    row["image_name"] = ""
                 stats["images_downloaded"] += 1
             else:
-                row["imageName"] = ""
+                row["image_name"] = ""
                 stats["images_missing"] += 1
 
         await asyncio.gather(*(worker(r) for r in rows))
@@ -349,11 +365,27 @@ async def perform_async_downloads(
 def write_output_csv(
     output_path: str, rows: List[Dict[str, str]], out_fieldnames: List[str]
 ) -> None:
-    with open(output_path, "w", newline="", encoding="utf-8") as outf:
+    # Write using utf-8-sig so the file is friendly to Windows editors and tools
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(output_path, "w", newline="", encoding=csv_enc) as outf:
         writer = csv.DictWriter(outf, fieldnames=out_fieldnames)
         writer.writeheader()
         for row in rows:
-            out_row = {k: row.get(k, "") for k in out_fieldnames}
+            # Map internal lower-case keys back to preferred camelCase output headers
+            out_row: Dict[str, str] = {}
+            for header in out_fieldnames:
+                h_low = header.lower()
+                if h_low == "image_name":
+                    out_row[header] = row.get("image_name", "")
+                elif h_low == "image_credit":
+                    out_row[header] = row.get("image_credit", "")
+                elif h_low == "image":
+                    out_row[header] = row.get("image", "")
+                else:
+                    # default mapping: use the lower-case key if present, else empty
+                    out_row[header] = row.get(h_low, "")
             writer.writerow(out_row)
 
 
@@ -364,7 +396,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--input", required=True, help="Path to enhanced input CSV")
     p.add_argument("--output", required=False, help="Path to output master CSV")
     p.add_argument(
-        "--source", required=False, help="Source name to use for imageCredit if missing"
+        "--source",
+        required=False,
+        help="Source name to use for image_credit if missing",
     )
     p.add_argument(
         "--async",
@@ -378,6 +412,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=6,
         help="Max concurrent downloads when using --async",
     )
+    args = p.parse_args(argv)
     args = p.parse_args(argv)
 
     input_path = args.input

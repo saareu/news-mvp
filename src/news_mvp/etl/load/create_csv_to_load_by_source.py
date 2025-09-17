@@ -18,10 +18,9 @@ import csv
 import logging
 from pathlib import Path
 from typing import Set
+from news_mvp.settings import get_runtime_csv_encoding
 
-from news_mvp.logging_setup import get_logger
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("create_csv_to_load_by_source")
 
 
 def detect_source_from_path(p: Path) -> str:
@@ -38,7 +37,8 @@ def read_master_ids(master_path: Path, id_field: str = "id") -> Set[str]:
     if not master_path.exists():
         LOG.info("Master file not found: %s", master_path)
         return ids
-    with open(master_path, "r", encoding="utf-8-sig", newline="") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(master_path, "r", encoding=csv_enc, newline="") as f:
         reader = csv.DictReader(f)
         for r in reader:
             ids.add((r.get(id_field) or "").strip())
@@ -61,7 +61,8 @@ def create_unenhanced(
 
     master_ids = read_master_ids(master_path, id_field=id_field)
 
-    with open(input_path, "r", encoding="utf-8-sig", newline="") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(input_path, "r", encoding=csv_enc, newline="") as f:
         reader = csv.DictReader(f)
         rows = [r for r in reader]
         fieldnames = reader.fieldnames or []
@@ -74,7 +75,8 @@ def create_unenhanced(
     # Ensure directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
+    csv_enc = get_runtime_csv_encoding()
+    with open(output_path, "w", encoding=csv_enc, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in to_write:

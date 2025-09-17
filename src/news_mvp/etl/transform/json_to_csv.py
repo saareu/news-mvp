@@ -76,7 +76,10 @@ def json_items_to_csv(items: List[Dict[str, Any]], out_path: Path) -> None:
     fields = sorted(field_set)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8-sig", newline="") as fh:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(out_path, "w", encoding=csv_enc, newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow(fields)
         for it in items:
@@ -97,7 +100,10 @@ def main(argv=None) -> int:
     if not inp.exists():
         raise SystemExit(f"Input JSON not found: {inp}")
 
-    with open(inp, "r", encoding="utf-8-sig") as fh:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(inp, "r", encoding=csv_enc) as fh:
         data = json.load(fh)
 
     # If the top-level is a mapping with a single root, drill into it

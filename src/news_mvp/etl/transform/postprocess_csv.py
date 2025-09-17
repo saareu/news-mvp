@@ -125,7 +125,10 @@ def parse_cell_value(s: str) -> str:
 
 
 def postprocess_csv(path: Path) -> None:
-    with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(path, "r", encoding=csv_enc, newline="") as fh:
         reader = csv.reader(fh)
         rows = list(reader)
     if not rows:
@@ -151,7 +154,10 @@ def postprocess_csv(path: Path) -> None:
         processed.append(row_out)
 
     # Write back
-    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(path, "w", encoding=csv_enc, newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow(header)
         for r in processed:

@@ -45,7 +45,10 @@ except ImportError:
 
 def load_selectors(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
     out: Dict[str, Dict[str, Optional[str]]] = {}
-    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(path, "r", encoding=csv_enc, newline="") as f:
         r = csv.DictReader(f)
         for row in r:
             sel = row.get("selector")
@@ -622,7 +625,10 @@ def enhance_file(
     # The selectors.csv keys are like 'author','category','description' in its 'selector' column
     # But above load_selectors returns mapping keyed by selector column's value; we need to invert
     # We'll use the CSV directly: open and get row entries where the 'selector' header is the logical name
-    with open(selectors_path, "r", encoding="utf-8-sig", newline="") as f:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(selectors_path, "r", encoding=csv_enc, newline="") as f:
         r = csv.DictReader(f)
         for row in r:
             key = row.get("selector")
@@ -632,7 +638,10 @@ def enhance_file(
             selectors_for_source[key] = val if val and val.lower() != "none" else None
 
     out_rows = []
-    with open(input_path, "r", encoding="utf-8-sig", newline="") as f:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(input_path, "r", encoding=csv_enc, newline="") as f:
         reader = csv.DictReader(f)
         rows = [r for r in reader]
         fieldnames = reader.fieldnames or []
@@ -674,7 +683,10 @@ def enhance_file(
     out_path = input_path.with_name(
         input_path.name.replace("_unenhanced.csv", "_enhanced.csv")
     )
-    with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(out_path, "w", encoding=csv_enc, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in out_rows:

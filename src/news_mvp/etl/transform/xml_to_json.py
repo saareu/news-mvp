@@ -91,19 +91,21 @@ def main(argv=None) -> int:
         raise SystemExit(f"Input file not found: {inp}")
 
     data = xml_file_to_json(inp)
+
     if args.output:
         outp = Path(args.output)
         outp.parent.mkdir(parents=True, exist_ok=True)
-        with open(outp, "w", encoding="utf-8-sig") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=args.indent)
-        print(str(outp))
     else:
         # Default behavior: write JSON next to the input XML with same base name
         outp = inp.with_suffix(".json")
         outp.parent.mkdir(parents=True, exist_ok=True)
-        with open(outp, "w", encoding="utf-8-sig") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=args.indent)
-        print(str(outp))
+
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(outp, "w", encoding=csv_enc) as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=args.indent)
+    print(str(outp))
 
     return 0
 

@@ -185,7 +185,10 @@ def run_pipeline_for_source(
     # Convert XML -> JSON (in-memory), then write JSON file next to XML
     data = xml_to_json.xml_file_to_json(xml_path)
     json_path = xml_path.with_suffix(".json")
-    with open(json_path, "w", encoding="utf-8-sig") as fh:
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    with open(json_path, "w", encoding=csv_enc) as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
     LOG.info(
         "Wrote JSON",

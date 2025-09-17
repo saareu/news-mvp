@@ -26,9 +26,7 @@ from typing import Optional
 
 from news_mvp.etl.config import BASE_DIR
 
-from news_mvp.logging_setup import get_logger
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("kan_fetcher")
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -61,10 +59,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     LOG.info("Starting Selenium Chrome (headless=%s)", args.headless)
     try:
-        from selenium import webdriver  # type: ignore
-        from selenium.webdriver.chrome.options import Options  # type: ignore
-        from selenium.webdriver.chrome.service import Service  # type: ignore
-        from webdriver_manager.chrome import ChromeDriverManager  # type: ignore
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
     except Exception as e:  # pragma: no cover - dependency error
         LOG.error("Selenium or webdriver-manager not installed: %s", e)
         LOG.error("Install with: pip install selenium webdriver-manager")
@@ -102,7 +100,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     path = out_dir / f"kan_{timestamp}.html"
-    path.write_text(html, encoding="utf-8")
+    from news_mvp.settings import get_runtime_csv_encoding
+
+    csv_enc = get_runtime_csv_encoding()
+    path.write_text(html, encoding=csv_enc)
 
     try:
         rel = path.relative_to(Path.cwd())

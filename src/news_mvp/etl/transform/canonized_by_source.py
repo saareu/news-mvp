@@ -36,18 +36,21 @@ import csv
 import hashlib
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, cast
+from news_mvp.etl.utils.id_seed import make_news_id
+from news_mvp.settings import get_runtime_csv_encoding
+from news_mvp.schemas import Stage
+from news_mvp.schema_io import write_stage_df
 import email.utils
-from datetime import datetime
+from datetime import datetime, timezone
+import pandas as pd
 
 try:
     from langdetect import detect as langdetect_detect  # type: ignore
 except Exception:
     langdetect_detect = None
 
-from news_mvp.logging_setup import get_logger
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("canonized_by_source")
 
 
 def detect_source_from_path(p: Path) -> str:
@@ -67,7 +70,11 @@ def detect_source_from_path(p: Path) -> str:
 
 
 def read_mapping(mapping_path: Path) -> Tuple[List[str], List[Dict[str, str]]]:
-    with open(mapping_path, "r", encoding="utf-8-sig", newline="") as f:
+    # derive CSV encoding from runtime config (configs/<env>.yaml). Allow
+    # overriding the environment via NEWS_MVP_ENV; default to 'dev'. This
+    # lets users change csv encoding in YAML rather than editing code.
+    csv_enc = get_runtime_csv_encoding()
+    with open(mapping_path, "r", encoding=csv_enc, newline="") as f:
         reader = csv.DictReader(f)
         # canonical column order = values in the 'canonical' column
         rows = [r for r in reader]
@@ -202,24 +209,26 @@ def build_canonical_rows(
     fieldnames: List[str],
     source: str,
     source_col_name: str,
-    force_tz_offset: int | None = None,
-) -> Tuple[List[str], List[Dict[str, str]]]:
-    # canonical columns order defined by mapping_rows 'canonical' values
-    canonical_cols = [r["canonical"] for r in mapping_rows]
+    force_tz_offset: bool = False,
+) -> List[Dict[str, str]]:
+    """Build canonical rows using mapping for field selection, then add required schema fields."""
+
+    # Use mapping to determine which fields to extract from source
+    spec_for: Dict[str, str] = {}
+    for r in mapping_rows:
+        canonical_key = r.get("canonical") or ""
+        spec_for[canonical_key] = r.get(source_col_name, "")
 
     out_rows: List[Dict[str, str]] = []
 
-    # build map canonical -> spec for this source
-    spec_for: Dict[str, str] = {}
-    for r in mapping_rows:
-        spec_for[r["canonical"]] = r.get(source_col_name, "")
-
     for idx, row in enumerate(input_rows, start=1):
         out: Dict[str, str] = {}
-        for canon in canonical_cols:
-            spec = (spec_for.get(canon) or "").strip()
+
+        # Apply mapping transformations
+        for canon_field in spec_for:
+            spec = (spec_for.get(canon_field) or "").strip()
             if not spec or spec.lower() == "none":
-                out[canon] = ""
+                out[canon_field] = ""
                 continue
             # If it's a concat spec (contains '+') treat specially
             if "+" in spec:
@@ -227,56 +236,74 @@ def build_canonical_rows(
                     val = combine_concat(spec, row)
                 except Exception as e:
                     raise RuntimeError(
-                        f"Invalid concat spec for canonical '{canon}': {spec!r}: {e}"
+                        f"Invalid concat spec for canonical '{canon_field}': {spec!r}: {e}"
                     ) from e
-                out[canon] = val
+                out[canon_field] = val
             else:
                 # simple mapping: take value from source column name
-                out[canon] = row.get(spec, "")
+                out[canon_field] = row.get(spec, "")
 
-        # Before computing id, ensure canonical 'source' is filled from detected source
-        if "source" in out and (not out.get("source")):
+        # Ensure required schema fields are present (beyond mapping)
+
+        # Source must be filled
+        if not out.get("source"):
             out["source"] = source
 
-        # normalize pubDate if present
-        if out.get("pubDate"):
-            out["pubDate"] = (
-                normalize_pubdate(out["pubDate"], force_tz_offset=force_tz_offset)
-                or out["pubDate"]
-            )
+        # Handle pub_date normalization and fallback
+        pub_val_raw = out.get("pub_date") or out.get("pubDate") or ""
+        if pub_val_raw:
+            normalized = normalize_pubdate(pub_val_raw, force_tz_offset=force_tz_offset)
+            out["pub_date"] = normalized or pub_val_raw
+        else:
+            # Fallback to fetching_time
+            ft = (
+                out.get("fetching_time")
+                or out.get("fetchingTime")
+                or out.get("fetchingtime")
+                or ""
+            ).strip()
+            if ft:
+                normalized = normalize_pubdate(ft, force_tz_offset=force_tz_offset)
+                out["pub_date"] = normalized or ft
+            else:
+                # Last resort: current time
+                out["pub_date"] = datetime.now().isoformat()
 
-        # Enforce non-nullable contract: title, pubDate, and source must be present
-        missing = []
+        # Generate article_id (deterministic ID)
         title_val = (out.get("title") or "").strip()
-        if not title_val:
-            missing.append("title")
-        pub_val = (out.get("pubDate") or "").strip()
-        if not pub_val:
-            missing.append("pubDate")
+        pub_val = (out.get("pub_date") or "").strip()
         src_val = (out.get("source") or "").strip()
-        if not src_val:
-            missing.append("source")
-        if missing:
+
+        if not title_val or not pub_val or not src_val:
             guid_preview = out.get("guid") or ""
+            missing = []
+            if not title_val:
+                missing.append("title")
+            if not pub_val:
+                missing.append("pub_date")
+            if not src_val:
+                missing.append("source")
             raise RuntimeError(
-                f"Missing required fields {missing} for input row {idx} (title={title_val!r}, pubDate={pub_val!r}, source={src_val!r}, guid={guid_preview!r})"
+                f"Missing required fields {missing} for input row {idx} (title={title_val!r}, pub_date={pub_val!r}, source={src_val!r}, guid={guid_preview!r})"
             )
 
-        # id hashing: compute from title|pubDate|source (ignore guid) using validated values
-        seed = f"{title_val}|{pub_val}|{src_val}"
-        out["id"] = sha1_of_text(seed)
+        out["article_id"] = make_news_id(title_val, pub_val, src_val)
 
-        # language detection from title
+        # Language detection from title
         if not out.get("language"):
-            out["language"] = detect_language_from_title(out.get("title", ""))
+            out["language"] = detect_language_from_title(title_val)
 
-        # image cleanup
+        # Image cleanup
         if out.get("image"):
             out["image"] = strip_url_query(out["image"])
 
+        # Set fetching_time if not present (required field)
+        if not out.get("fetching_time"):
+            out["fetching_time"] = datetime.now(timezone.utc).isoformat()
+
         out_rows.append(out)
 
-    return canonical_cols, out_rows
+    return out_rows
 
 
 def main(argv=None) -> int:
@@ -348,13 +375,20 @@ def main(argv=None) -> int:
         )
         return 1
 
-    # read input CSV
-    with open(input_path, "r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        input_rows = [r for r in reader]
+    # read input CSV using pandas
+    csv_enc = get_runtime_csv_encoding()
+    df_in = pd.read_csv(input_path, encoding=csv_enc, dtype=str)
+    input_rows = cast(List[Dict[str, str]], df_in.fillna("").to_dict(orient="records"))
 
-    # Pass force_tz_offset to build_canonical_rows as a parameter
-    canonical_cols, out_rows = build_canonical_rows(
+    # read mapping CSV using pandas
+    df_mapping = pd.read_csv(mapping_path, encoding=csv_enc, dtype=str)
+    mapping_rows = cast(
+        List[Dict[str, str]], df_mapping.fillna("").to_dict(orient="records")
+    )
+    fieldnames = list(df_mapping.columns)
+
+    # Pass force_tz_offset explicitly to the function to make the API explicit
+    out_rows = build_canonical_rows(
         input_rows,
         mapping_rows,
         fieldnames,
@@ -372,11 +406,9 @@ def main(argv=None) -> int:
         stem = input_path.stem
         output_path = out_dir / f"{stem}_canonical.csv"
 
-    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=canonical_cols)
-        writer.writeheader()
-        for r in out_rows:
-            writer.writerow({k: r.get(k, "") for k in canonical_cols})
+    # Convert to DataFrame and use schema-aware writer to ensure master-stage compliance
+    df_out = pd.DataFrame(out_rows)
+    write_stage_df(df_out, str(output_path), Stage.ETL_BEFORE_MERGE, encoding=csv_enc)
 
     try:
         rel = output_path.relative_to(Path.cwd())

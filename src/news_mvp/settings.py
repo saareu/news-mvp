@@ -1,9 +1,13 @@
 # src/news_mvp/settings.py
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
-import yaml
+from functools import lru_cache
 import os
 from types import SimpleNamespace
+
+import yaml
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from news_mvp.constants import CSV_ENCODING
 from news_mvp.paths import Paths
 
 
@@ -21,27 +25,6 @@ class IngestConfig(BaseModel):
     input_glob: str = "data/raw/source=*/date=*/part-*.parquet"
     batch_size: int = 1000
     parallel_workers: int = 2
-
-
-class StorageConfig(BaseModel):
-    """Configuration related to storage & database loading workflow.
-
-    Attributes:
-        store_images_in_db: If True, load raw image bytes into `imageBlob` column.
-        remove_parquet_after_load: If True, delete parquet files after successful DB load.
-        image_compression: Optional compression strategy for images when storing bytes
-            (placeholder for future implementation, e.g., 'jpeg', 'webp'). If None, store
-            original bytes.
-        db_path: Relative path to DuckDB database file.
-        schema_file: Path to SQL schema definition used during initialization.
-    """
-
-    store_images_in_db: bool = False
-    remove_parquet_after_load: bool = False
-    image_compression: str | None = None
-    db_path: str = "data/db/news_mvp.duckdb"
-    schema_file: str = "schema.sql"
-    retention_days: int | None = None  # if set, parquet older than this are removable
 
 
 # … existing models …
@@ -80,7 +63,8 @@ class Settings(BaseSettings):
     runtime: RuntimeConfig = RuntimeConfig()
     logging: LoggingConfig = LoggingConfig()
     ingest: IngestConfig = IngestConfig()
-    storage: StorageConfig = StorageConfig()
+    # CSV encoding used across the project (defaults to utf-8-sig to handle BOM)
+    csv_encoding: str = CSV_ENCODING
 
     @staticmethod
     def _deep_update(d: dict, u: dict) -> dict:
@@ -95,11 +79,14 @@ class Settings(BaseSettings):
     @staticmethod
     def load(path: str) -> "Settings":
         base_path = os.path.join(os.path.dirname(path), "base.yaml")
-        with open(base_path, "r", encoding="utf-8") as f:
+        with open(base_path, "r", encoding=CSV_ENCODING) as f:
             base = yaml.safe_load(f)
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding=CSV_ENCODING) as f:
             override = yaml.safe_load(f)
         merged = Settings._deep_update(base, override or {})
+        # Ensure csv_encoding from the merged config is honoured
+        if merged.get("csv_encoding"):
+            merged.setdefault("csv_encoding", merged.get("csv_encoding"))
         return Settings(**merged)
 
 
@@ -109,11 +96,13 @@ def load_settings(env: str) -> SimpleNamespace:
     """
     cfg_path = f"configs/{env}.yaml"
     base_path = os.path.join(os.path.dirname(cfg_path), "base.yaml")
-    with open(base_path, "r", encoding="utf-8") as f:
+    with open(base_path, "r", encoding=CSV_ENCODING) as f:
         base = yaml.safe_load(f)
-    with open(cfg_path, "r", encoding="utf-8") as f:
+    with open(cfg_path, "r", encoding=CSV_ENCODING) as f:
         override = yaml.safe_load(f)
     merged = Settings._deep_update(base, override or {})
+    # expose csv_encoding on the result for backward compatibility
+    csv_enc = merged.get("csv_encoding", CSV_ENCODING)
 
     app = merged.get("app", {}) or {}
     # ensure a name exists for tests
@@ -124,6 +113,7 @@ def load_settings(env: str) -> SimpleNamespace:
     result = SimpleNamespace()
     result.app = SimpleNamespace(**app)
     result.paths = paths_ns
+    result.csv_encoding = csv_enc
     # copy other top-level keys for convenience
     for k, v in merged.items():
         if k in ("app", "paths"):
@@ -133,14 +123,14 @@ def load_settings(env: str) -> SimpleNamespace:
     return result
 
 
-def get_config(env: str = "dev") -> Settings:
-    """Get configuration settings for the specified environment.
+@lru_cache(maxsize=8)
+def get_runtime_csv_encoding(env: str | None = None) -> str:
+    """Return the CSV encoding configured for the given env (or default env).
 
-    Args:
-        env: Environment name (dev, prod, staging)
-
-    Returns:
-        Settings object with loaded configuration
+    This is a small cached helper so other modules can cheaply obtain the
+    configured CSV encoding without directly importing the constant or
+    repeatedly parsing YAML files.
     """
-    cfg_path = f"configs/{env}.yaml"
-    return Settings.load(cfg_path)
+    env = env or os.environ.get("NEWS_MVP_ENV", "dev")
+    cfg = load_settings(env)
+    return getattr(cfg, "csv_encoding", CSV_ENCODING)
