@@ -128,6 +128,23 @@ def orchestrate(
     mapping_path = _abs_path(raw_mapping)
     selectors_path = _abs_path(raw_selectors)
 
+    # Determine the effective timezone offset to force for this source (if any)
+    # Priority: explicit function argument > config value for source > None
+    effective_force_tz_offset: Optional[int] = force_tz_offset
+    try:
+        if effective_force_tz_offset is None:
+            src_cfg = s.etl.sources.get(source)
+            if src_cfg is not None:
+                effective_force_tz_offset = src_cfg.force_tz_offset
+    except Exception:
+        # Be resilient to missing/partial config
+        effective_force_tz_offset = force_tz_offset
+
+    # Debug log what will be used
+    print(
+        f"Using force_tz_offset={effective_force_tz_offset!r} for source={source} (env={env})"
+    )
+
     for idx, step in enumerate(STEPS, start=1):
         print(f"STEP {idx}/{len(STEPS)} -> {step} (current_input={current_input})")
         args: List[str] = [python_cmd, "-m", step]
@@ -166,8 +183,8 @@ def orchestrate(
                     mapping_path,
                 ]
             )
-            if force_tz_offset is not None:
-                args.extend(["--force-tz-offset", str(force_tz_offset)])
+            if effective_force_tz_offset is not None:
+                args.extend(["--force-tz-offset", str(effective_force_tz_offset)])
             out_path = str(out_p)
         elif step == "news_mvp.etl.load.create_csv_to_load_by_source":
             if not current_input:
