@@ -41,6 +41,7 @@ def get_parquet_schema() -> pa.schema:
             ("image_caption", pa.string()),
             ("image_credit", pa.string()),
             ("image_name", pa.string()),
+            ("guid", pa.string()),  # RSS feed unique identifier
             ("processed_at", pa.timestamp("ns")),
             ("batch_hour", pa.int64()),
         ]
@@ -78,6 +79,7 @@ ARTICLE_DTYPES = {
     "image_caption": "string",
     "image_credit": "string",
     "image_name": "string",
+    "guid": "string",  # RSS feed unique identifier
     "processed_at": "datetime64[ns, UTC]",
     "batch_hour": "Int64",
 }
@@ -113,6 +115,7 @@ class ArticleModel(BaseModel):
     image_caption: Optional[str] = Field(None, description="Image caption")
     image_credit: Optional[str] = Field(None, description="Image credit")
     image_name: Optional[str] = Field(None, description="Image filename")
+    guid: Optional[str] = Field(None, description="RSS feed unique identifier")
     processed_at: datetime = Field(
         default_factory=lambda: datetime.now(), description="Processing timestamp"
     )
@@ -150,6 +153,7 @@ CSV_COLUMNS = {
         "source",
         "language",
         "imageName",
+        "guid",  # RSS feed unique identifier
     ],
     "canonical": [
         "id",
@@ -176,6 +180,7 @@ CSV_COLUMNS = {
         "image_caption",
         "image_credit",
         "image_name",
+        "guid",  # RSS feed unique identifier
     ],
 }
 
