@@ -109,3 +109,16 @@ def load_settings(env: str) -> SimpleNamespace:
         setattr(result, k, v)
 
     return result
+
+
+def get_config(env: str = "dev") -> Settings:
+    """Get configuration settings for the specified environment.
+
+    Args:
+        env: Environment name (dev, prod, staging)
+
+    Returns:
+        Settings object with loaded configuration
+    """
+    cfg_path = f"configs/{env}.yaml"
+    return Settings.load(cfg_path)
