@@ -52,18 +52,19 @@ class DatabaseLoader:
         self.init_schema()
 
     def init_schema(self):
-        """Initialize database schema if it doesn't exist."""
+        """Initialize database schema from schema.sql file."""
         schema_path = Path(__file__).parent.parent / "schema.sql"
         if schema_path.exists():
-            logger.info("Initializing database schema...")
+            logger.info("Initializing database schema from schema.sql...")
             with open(schema_path, "r", encoding="utf-8") as f:
                 schema_sql = f.read()
 
             # Execute schema (DuckDB handles IF NOT EXISTS)
             self.conn.execute(schema_sql)
-            logger.info("Database schema initialized")
+            logger.info("Database schema initialized successfully")
         else:
             logger.warning(f"Schema file not found: {schema_path}")
+            raise FileNotFoundError(f"Database schema file not found: {schema_path}")
 
     def get_source_id(self, source_name: str) -> int:
         """Get or create source ID."""
