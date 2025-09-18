@@ -22,7 +22,11 @@ import csv
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from news_mvp.settings import get_runtime_csv_encoding
+from news_mvp.settings import (
+    get_runtime_csv_encoding,
+    get_schema_required,
+)
+from news_mvp.schemas import Stage
 
 
 DEFAULT_MASTER = os.path.join("data", "master")
@@ -88,32 +92,40 @@ def merge_master(input_path: str, master_path: str) -> str:
     input_rows = read_csv(input_path)
     master_rows = read_csv(master_path) if os.path.exists(master_path) else []
 
-    # Validation: at this stage every input row must have an 'article_id'
+    # Determine canonical field names from schema
+    schema_stage = Stage.ETL_BEFORE_MERGE
+    required = get_schema_required(schema_stage)
+    # expected required tuple: (article_id, guid, pub_date, ???, source, ...)
+    article_id_field = required[0]
+    # pub_date is strictly the 4th required field (index 3) in the ETL_BEFORE_MERGE schema
+    pub_date_field = required[3]
+
+    # Validation: at this stage every input row must have the canonical article_id
     for i, r in enumerate(input_rows, start=1):
-        id_val = (r.get("article_id") or "").strip()
+        id_val = (r.get(article_id_field) or "").strip()
         if not id_val:
             raise RuntimeError(
-                f"Missing required 'article_id' in input {input_path} row {i}: {repr(r)}"
+                f"Missing required '{article_id_field}' in input {input_path} row {i}: {repr(r)}"
             )
     for i, r in enumerate(master_rows, start=1):
-        id_val = (r.get("article_id") or "").strip()
+        id_val = (r.get(article_id_field) or "").strip()
         if not id_val:
             raise RuntimeError(
-                f"Missing required 'article_id' in master {master_path} row {i}: {repr(r)}"
+                f"Missing required '{article_id_field}' in master {master_path} row {i}: {repr(r)}"
             )
 
     # build index by article_id from master (do NOT use guid as dedupe key)
     seen_ids = {}
     merged: List[Dict[str, str]] = []
     for r in master_rows:
-        key = r.get("article_id")
+        key = r.get(article_id_field)
         if key:
             seen_ids[key] = r
         merged.append(r)
 
     # merge input rows: if article_id exists replace the master row, else append
     for r in input_rows:
-        key = r.get("article_id")
+        key = r.get(article_id_field)
         if key and key in seen_ids:
             # replace fields in-place (prefer incoming values)
             existing = seen_ids[key]
@@ -121,17 +133,17 @@ def merge_master(input_path: str, master_path: str) -> str:
         else:
             merged.append(r)
 
-    # dedupe by (article_id) or guid preserving the last occurrence (which should be the incoming)
+    # dedupe by (article_id) preserving the last occurrence (which should be the incoming)
     deduped = {}
     for r in merged:
         # All rows must have article_id at this stage (validated above). Use article_id only.
-        key = r.get("article_id")
+        key = r.get(article_id_field)
         deduped[key] = dict(r)
 
     rows = list(deduped.values())
 
-    # sort by pubDate descending (use new schema field 'pub_date')
-    rows.sort(key=lambda r: parse_pubdate(r.get("pub_date")), reverse=True)
+    # sort by pub_date descending using canonical pub_date field
+    rows.sort(key=lambda r: parse_pubdate(r.get(pub_date_field)), reverse=True)
 
     # determine fieldnames as union of all keys preserving order from master then input
     # include `guid` so the master file contains it

@@ -17,7 +17,7 @@ etl:
   enabled: true
   dry_run: false
   sources:
-    ynet: { rss: "https://www.ynet.co.il/Integration/StoryRss2.xml", force_tz_offset: null }
+    ynet: { rss: "https://www.ynet.co.il/Integration/StoryRss2.xml", force_tz_offset: null, strip_tags: true, strip_authors: false }
     hayom: { rss: "https://www.israelhayom.co.il/rss.xml", force_tz_offset: 3 }
     haaretz: { rss: "https://www.haaretz.co.il/srv/htz---all-articles", force_tz_offset: null }
   etl_schema:

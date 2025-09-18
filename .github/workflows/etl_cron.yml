@@ -35,26 +35,16 @@ jobs:
       - name: Check for changes
         id: check_changes
         run: |
-          # Use `git status --porcelain` to detect both tracked modifications and new untracked files
-          # Limit the check to the data/master and data/pics paths so the runner doesn't consider unrelated files
-          changes=$(git status --porcelain --untracked-files=all -- "data/master" "data/pics")
-          if [ -z "${changes}" ]; then
+          if git diff --quiet data/master/ data/pics/; then
             echo "No changes to commit"
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
             echo "Changes detected in master CSV files or images"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "detected_changes<<EOF" >> $GITHUB_OUTPUT
-            echo "$changes" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
           fi
       - name: Commit master CSV files and images
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
-          # Print what the check step detected for debugging
-          echo "Detected changes (porcelain):"
-          echo "${{ steps.check_changes.outputs.detected_changes }}"
-
           git add -f data/master/master_*.csv data/pics/
           git commit -m "feat: Update master CSV files and images
 

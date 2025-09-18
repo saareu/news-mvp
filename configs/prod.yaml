@@ -6,6 +6,12 @@ logging:
   structured: true
 etl:
   dry_run: false
+  sources:
+    ynet:
+      strip_tags: true
+      strip_authors: false
+    hayom:
+      force_tz_offset: 3
 ingest:
   # Larger batch size for production environment
   batch_size: 2000

@@ -24,7 +24,11 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
 from news_mvp.etl.config import MASTER_NEWS_CSV
-from news_mvp.settings import get_runtime_csv_encoding
+from news_mvp.settings import (
+    get_runtime_csv_encoding,
+    get_schema_required,
+)
+from news_mvp.schemas import Stage
 
 
 def read_csv(path: str) -> List[Dict[str, str]]:
@@ -61,11 +65,6 @@ def parse_pubdate(val: Optional[str]) -> float:
     return 0.0
 
 
-def get_id_key(row):
-    # Only use the canonical 'article_id' — do not accept BOM-prefixed or guid fallbacks.
-    return row.get("article_id")
-
-
 def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) -> str:
     if master_path is None:
         master_path = str(MASTER_NEWS_CSV)
@@ -75,6 +74,11 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
     Path(master_path).parent.mkdir(parents=True, exist_ok=True)
     all_rows = []
     fieldnames: List[str] = []
+    # Determine canonical field names from schema (strict)
+    schema_stage = Stage.ETL_BEFORE_MERGE
+    required = get_schema_required(schema_stage)
+    article_id_field = required[0]
+    pub_date_field = required[3]
     # seen_ids removed (unused); dedup handled by dict below
 
     def safe_print(msg):
@@ -92,12 +96,12 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
         if rows:
             safe_print(f"[merge_by_source] source fieldnames: {list(rows[0].keys())}")
             safe_print(f"[merge_by_source] source first row: {repr(rows[0])}")
-        # Validate: at this stage every row MUST include a non-empty exact 'article_id' field.
+        # Validate: at this stage every row MUST include a non-empty canonical article_id
         for i, r in enumerate(rows, start=1):
-            id_val = (r.get("article_id") or "").strip()
+            id_val = (r.get(article_id_field) or "").strip()
             if not id_val:
                 raise RuntimeError(
-                    f"Missing required 'article_id' in source {source_path} row {i}: {repr(r)}"
+                    f"Missing required '{article_id_field}' in source {source_path} row {i}: {repr(r)}"
                 )
             all_rows.append(r)
             for k in r.keys():
@@ -111,12 +115,12 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
             f"[merge_by_source] master fieldnames: {list(master_rows[0].keys())}"
         )
         safe_print(f"[merge_by_source] master first row: {repr(master_rows[0])}")
-    # Validate master rows also have an exact 'article_id'
+    # Validate master rows also have a canonical article_id
     for i, r in enumerate(master_rows, start=1):
-        id_val = (r.get("article_id") or "").strip()
+        id_val = (r.get(article_id_field) or "").strip()
         if not id_val:
             raise RuntimeError(
-                f"Missing required 'article_id' in existing master {master_path} row {i}: {repr(r)}"
+                f"Missing required '{article_id_field}' in existing master {master_path} row {i}: {repr(r)}"
             )
         all_rows.append(r)
         for k in r.keys():
@@ -125,15 +129,15 @@ def merge_by_source(source_paths: List[str], master_path: Optional[str] = None) 
     # Deduplicate by id, preserving last occurrence
     deduped: Dict[str, Dict[str, str]] = {}
     for r in all_rows:
-        key = get_id_key(r)
+        key = r.get(article_id_field)
         if key is not None:
             deduped[key] = r
     rows = list(deduped.values())
     safe_print(
         f"[merge_by_source] after merge: unified master rows={len(rows)} (added {len(rows)-len(master_rows)})"
     )
-    # Sort by pub_date desc
-    rows.sort(key=lambda r: parse_pubdate(r.get("pub_date")), reverse=True)
+    # Sort by canonical pub_date desc
+    rows.sort(key=lambda r: parse_pubdate(r.get(pub_date_field)), reverse=True)
     write_csv(master_path, rows, fieldnames)
     return master_path
 

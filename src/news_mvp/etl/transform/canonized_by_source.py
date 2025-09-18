@@ -20,7 +20,7 @@ Behavior:
  - For concatenated fields, if all the joined values for a row are identical,
      the result is that single value (no delimiters). Otherwise the values are
      combined with the provided delimiters (preserving order).
- - After mapping, the script computes a deterministic `id` (SHA1 of guid if
+ - After mapping, the script computes a deterministic `id`
      present else of title), infers `language` from the title (Hebrew -> 'he',
      otherwise 'en'), and strips query params from `image` URLs (remove '?' and
      everything after).
@@ -32,13 +32,21 @@ All paths are configurable via etl/config.py and environment/YAML.
 from __future__ import annotations
 
 import argparse
+import os
 import csv
-import hashlib
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, cast
 from news_mvp.etl.utils.id_seed import make_news_id
-from news_mvp.settings import get_runtime_csv_encoding
+from news_mvp.settings import (
+    get_runtime_csv_encoding,
+    get_schema_fieldnames,
+    get_schema_required,
+    get_image_fieldname,
+    load_settings,
+    get_tags_fieldname,
+    get_author_fieldname,
+)
 from news_mvp.schemas import Stage
 from news_mvp.schema_io import write_stage_df
 import email.utils
@@ -116,10 +124,6 @@ def combine_concat(spec: str, row: Dict[str, str]) -> str:
         if i < len(delims):
             out_parts.append(delims[i])
     return "".join(out_parts)
-
-
-def sha1_of_text(t: str) -> str:
-    return hashlib.sha1((t or "").encode("utf-8")).hexdigest()
 
 
 def detect_language_from_title(title: str) -> str:
@@ -209,28 +213,43 @@ def build_canonical_rows(
     fieldnames: List[str],
     source: str,
     source_col_name: str,
-    force_tz_offset: bool = False,
+    force_tz_offset: int | None = None,
 ) -> List[Dict[str, str]]:
     """Build canonical rows using mapping for field selection, then add required schema fields."""
-
     # Use mapping to determine which fields to extract from source
     spec_for: Dict[str, str] = {}
     for r in mapping_rows:
         canonical_key = r.get("canonical") or ""
         spec_for[canonical_key] = r.get(source_col_name, "")
 
+    # Schema-driven ordering and required fields
+    schema_field_order = get_schema_fieldnames(Stage.ETL_BEFORE_MERGE)
+
+    # Derive required fields from schema (non-nullable) using settings wrapper
+    required_fields = get_schema_required(Stage.ETL_BEFORE_MERGE)
+
+    # Assign variables to positions requested by user using the required-fields order
+    # Expectation: required_fields order matches [article_id, guid, title, pub_date, source, language, fetching_time]
+    ARTICLE_ID, GUID, TITLE, PUB_DATE, SOURCE, LANGUAGE, FETCHING_TIME = required_fields
+
     out_rows: List[Dict[str, str]] = []
 
     for idx, row in enumerate(input_rows, start=1):
-        out: Dict[str, str] = {}
+        # Initialize an ordered output dict with schema fields
+        out: Dict[str, str] = {k: "" for k in schema_field_order}
 
-        # Apply mapping transformations
-        for canon_field in spec_for:
+        # Populate values based on mapping specs in schema order.
+        # Skip mapping for fields that we compute ourselves: ARTICLE_ID, LANGUAGE, SOURCE, FETCHING_TIME
+        computed_fields = {ARTICLE_ID, LANGUAGE, SOURCE, FETCHING_TIME}
+        for canon_field in schema_field_order:
+            if canon_field in computed_fields:
+                # do not take these from the input mapping
+                continue
             spec = (spec_for.get(canon_field) or "").strip()
             if not spec or spec.lower() == "none":
-                out[canon_field] = ""
+                # leave empty
                 continue
-            # If it's a concat spec (contains '+') treat specially
+            # concat spec
             if "+" in spec:
                 try:
                     val = combine_concat(spec, row)
@@ -240,70 +259,74 @@ def build_canonical_rows(
                     ) from e
                 out[canon_field] = val
             else:
-                # simple mapping: take value from source column name
                 out[canon_field] = row.get(spec, "")
 
-        # Ensure required schema fields are present (beyond mapping)
+        out[SOURCE] = source
 
-        # Source must be filled
-        if not out.get("source"):
-            out["source"] = source
+        # Pub date normalization: pub_date is mandatory and must come from mapping; do NOT fallback
+        pub_val_raw = out.get(PUB_DATE)
+        if not pub_val_raw or not pub_val_raw.strip():
+            raise RuntimeError(
+                f"Missing required field '{PUB_DATE}' for input row {idx}"
+            )
+        out[PUB_DATE] = normalize_pubdate(pub_val_raw, force_tz_offset=force_tz_offset)
 
-        # Handle pub_date normalization and fallback
-        pub_val_raw = out.get("pub_date") or out.get("pubDate") or ""
-        if pub_val_raw:
-            normalized = normalize_pubdate(pub_val_raw, force_tz_offset=force_tz_offset)
-            out["pub_date"] = normalized or pub_val_raw
-        else:
-            # Fallback to fetching_time
-            ft = (
-                out.get("fetching_time")
-                or out.get("fetchingTime")
-                or out.get("fetchingtime")
-                or ""
-            ).strip()
-            if ft:
-                normalized = normalize_pubdate(ft, force_tz_offset=force_tz_offset)
-                out["pub_date"] = normalized or ft
-            else:
-                # Last resort: current time
-                out["pub_date"] = datetime.now().isoformat()
+        # Title is required (populated from mapping); compute language from title
+        title_val = out[TITLE].strip()
+        out[LANGUAGE] = detect_language_from_title(title_val)
 
-        # Generate article_id (deterministic ID)
-        title_val = (out.get("title") or "").strip()
-        pub_val = (out.get("pub_date") or "").strip()
-        src_val = (out.get("source") or "").strip()
+        # Fetching time: always set by the pipeline (do not accept input value)
+        out[FETCHING_TIME] = datetime.now(timezone.utc).isoformat()
 
-        if not title_val or not pub_val or not src_val:
-            guid_preview = out.get("guid") or ""
+        # Compute deterministic article id from title, pub_date, source
+        pub_val = out[PUB_DATE].strip()
+        src_val = out[SOURCE].strip()
+        guid_val = (out.get(GUID) or "").strip()
+        if not title_val or not pub_val or not src_val or not guid_val:
             missing = []
             if not title_val:
-                missing.append("title")
+                missing.append(TITLE)
             if not pub_val:
-                missing.append("pub_date")
+                missing.append(PUB_DATE)
             if not src_val:
-                missing.append("source")
+                missing.append(SOURCE)
+            if not guid_val:
+                missing.append(GUID)
             raise RuntimeError(
-                f"Missing required fields {missing} for input row {idx} (title={title_val!r}, pub_date={pub_val!r}, source={src_val!r}, guid={guid_preview!r})"
+                f"Missing required fields {missing} for input row {idx} ({TITLE}={title_val!r}, {PUB_DATE}={pub_val!r}, {SOURCE}={src_val!r}, {GUID}={guid_val!r})"
             )
+        out[ARTICLE_ID] = make_news_id(title_val, pub_val, src_val)
 
-        out["article_id"] = make_news_id(title_val, pub_val, src_val)
-
-        # Language detection from title
-        if not out.get("language"):
-            out["language"] = detect_language_from_title(title_val)
-
-        # Image cleanup
-        if out.get("image"):
-            out["image"] = strip_url_query(out["image"])
-
-        # Set fetching_time if not present (required field)
-        if not out.get("fetching_time"):
-            out["fetching_time"] = datetime.now(timezone.utc).isoformat()
+        # Image cleanup: remove query strings from image URL (use schema-derived field name)
+        IMAGE = get_image_fieldname(Stage.ETL_BEFORE_MERGE)
+        if out.get(IMAGE):
+            out[IMAGE] = strip_url_query(out[IMAGE])
 
         out_rows.append(out)
 
     return out_rows
+
+
+def normalize_delim_list_column(
+    rows: List[Dict[str, str]], column: str, input_sep: str = ",", out_sep: str = "|"
+) -> None:
+    """Normalize a list-like column in-place.
+
+    For each row, split the value in `column` by `input_sep`, strip whitespace
+    from each token and then join non-empty tokens with `out_sep`.
+
+    This mutates `rows` in-place and is intended for fields like `tags`.
+    """
+    if not rows:
+        return
+    for r in rows:
+        val = r.get(column) or ""
+        if not val:
+            r[column] = ""
+            continue
+        parts = [p.strip() for p in val.split(input_sep)]
+        parts = [p for p in parts if p]
+        r[column] = out_sep.join(parts)
 
 
 def main(argv=None) -> int:
@@ -334,10 +357,25 @@ def main(argv=None) -> int:
         "--mapping", default=str(default_mapping_path), help="Path to mapping CSV"
     )
     p.add_argument(
+        "--env",
+        default=None,
+        help="Config environment (overrides NEWS_MVP_ENV). e.g. 'dev' or 'prod'.",
+    )
+    p.add_argument(
         "--force-tz-offset",
         type=int,
         default=None,
         help="Force output timezone offset in hours (e.g., 3 for +03:00, -5 for -05:00)",
+    )
+    p.add_argument(
+        "--strip-tags",
+        action="store_true",
+        help="Normalize tags column by splitting on ',' trimming and joining with '|' before writing",
+    )
+    p.add_argument(
+        "--strip-authors",
+        action="store_true",
+        help="Normalize authors column by splitting on ',' trimming and joining with '|' before writing",
     )
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args(argv)
@@ -351,6 +389,26 @@ def main(argv=None) -> int:
 
     source = detect_source_from_path(input_path)
     LOG.info("Detected source: %s", source)
+
+    # Load env-level settings to allow per-source defaults. Preference order:
+    # 1) CLI --env, 2) env var NEWS_MVP_ENV, 3) default 'dev'
+    env = args.env or os.environ.get("NEWS_MVP_ENV", "dev")
+    cfg = load_settings(env)
+    # Per-source config may be under cfg.etl.sources[source]
+    src_cfg = {}
+    try:
+        src_cfg = (cfg.etl or {}).get("sources", {}) or {}
+    except Exception:
+        # older SimpleNamespace style: cfg.etl.sources is a dict-like
+        try:
+            src_cfg = cfg.etl.sources
+        except Exception:
+            src_cfg = {}
+    per_source = (
+        src_cfg.get(source, {})
+        if isinstance(src_cfg, dict)
+        else getattr(src_cfg, source, {})
+    )
 
     # mapping file
     mapping_path = Path(args.mapping)
@@ -375,6 +433,16 @@ def main(argv=None) -> int:
         )
         return 1
 
+    # Defensive check: ensure the mapping column name (source_col_name) corresponds
+    # to the detected source. Accept case differences but error on mismatch.
+    if source_col_name.lower() != source.lower():
+        LOG.error(
+            "Detected source '%s' does not match mapping column '%s'",
+            source,
+            source_col_name,
+        )
+        return 1
+
     # read input CSV using pandas
     csv_enc = get_runtime_csv_encoding()
     df_in = pd.read_csv(input_path, encoding=csv_enc, dtype=str)
@@ -388,13 +456,25 @@ def main(argv=None) -> int:
     fieldnames = list(df_mapping.columns)
 
     # Pass force_tz_offset explicitly to the function to make the API explicit
+    # Determine effective force_tz_offset: CLI wins, then per-source settings, else None
+    effective_force_tz = args.force_tz_offset
+    if effective_force_tz is None:
+        try:
+            effective_force_tz = (
+                per_source.get("force_tz_offset")
+                if isinstance(per_source, dict)
+                else getattr(per_source, "force_tz_offset", None)
+            )
+        except Exception:
+            effective_force_tz = None
+
     out_rows = build_canonical_rows(
         input_rows,
         mapping_rows,
         fieldnames,
         source,
         source_col_name,
-        args.force_tz_offset,
+        effective_force_tz,
     )
 
     # build output path
@@ -405,6 +485,42 @@ def main(argv=None) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = input_path.stem
         output_path = out_dir / f"{stem}_canonical.csv"
+
+    # Optionally normalize tags column (split on comma, strip, join with '|')
+    # Determine whether to strip tags: CLI flag overrides per-source setting
+    strip_tags_flag = args.strip_tags
+    if not strip_tags_flag:
+        try:
+            strip_tags_flag = (
+                per_source.get("strip_tags")
+                if isinstance(per_source, dict)
+                else getattr(per_source, "strip_tags", False)
+            )
+        except Exception:
+            strip_tags_flag = False
+
+    if strip_tags_flag:
+        # Use the settings wrapper and allow it to raise if tags field is missing
+        tag_field = get_tags_fieldname(Stage.ETL_BEFORE_MERGE)
+        normalize_delim_list_column(out_rows, tag_field, input_sep=",", out_sep="|")
+
+    # Optionally normalize authors column similar to tags.
+    # Follow same precedence as tags: CLI flag > per-source config > False
+    strip_authors_flag = args.strip_authors
+    if not strip_authors_flag:
+        try:
+            strip_authors_flag = (
+                per_source.get("strip_authors")
+                if isinstance(per_source, dict)
+                else getattr(per_source, "strip_authors", False)
+            )
+        except Exception:
+            strip_authors_flag = False
+
+    if strip_authors_flag:
+        # Use the settings wrapper and allow it to raise if author field is missing
+        author_field = get_author_fieldname(Stage.ETL_BEFORE_MERGE)
+        normalize_delim_list_column(out_rows, author_field, input_sep=",", out_sep="|")
 
     # Convert to DataFrame and use schema-aware writer to ensure master-stage compliance
     df_out = pd.DataFrame(out_rows)

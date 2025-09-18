@@ -28,6 +28,26 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 
+# Module-level schema stage used across functions (avoid passing string names)
+from news_mvp.schemas import Stage, schema_fieldnames
+from news_mvp.settings import (
+    get_runtime_csv_encoding,
+    get_schema_required,
+    get_image_fieldname,
+    get_description_fieldname,
+    get_category_fieldname,
+    get_author_fieldname,
+    get_imagecaption_fieldname,
+    get_image_name_fieldname,
+    get_image_credit_fieldname,
+)
+
+
+# Exported symbols (allow other modules to reuse the configured schema_stage)
+__all__ = ["schema_stage"]
+
+# Module-level schema stage used across functions (avoid passing string names)
+schema_stage = Stage.ETL_BEFORE_MERGE
 
 # Get the repository root directory relative to this script's location
 # This ensures the path works correctly in GitHub Actions and other CI environments
@@ -86,7 +106,7 @@ def deterministic_filename(source: str, idx: int, url: str) -> str:
 
 
 def filename_from_id_or_fallback(
-    row: Dict[str, str], idx: int, url: str, source: str
+    article_id: str, idx: int, url: str, source: str
 ) -> Tuple[str, str]:
     """Return (filename_with_ext, basename_no_ext).
 
@@ -110,30 +130,29 @@ def filename_from_id_or_fallback(
         ext = ".jpg"
 
     # Article ID is non-nullable - fail if missing
-    raw_id = (row.get("article_id") or "").strip()
+    raw_id = (article_id or "").strip()
     if not raw_id:
         raise ValueError(
             f"Article ID is missing or empty for row {idx} in source {source}. Article ID is required for image naming."
         )
-    # Use the article id itself as the deterministic basename. This keeps
-    # recovery simple: filename = <id><ext>. Return both filename and basename
-    # (basename is the id string) so callers can use the basename as an index.
+    # Use the article id itself as the deterministic basename.
     basename = raw_id
     filename = f"{basename}{ext}"
 
     return filename, basename
 
 
-def find_image_url(row: Dict[str, str]) -> Optional[str]:
-    """Return the image URL from the `image` column (strict).
+def find_image_url(img_val: Optional[str]) -> Optional[str]:
+    """Return the image URL from the provided image value (strict).
 
-    Per the user's direction, we only trust the `image` column as the source of
-    the image URL. If it's empty or not a valid URL, return None.
+    Accepts the raw value from the canonical image column and returns a
+    normalized absolute URL or None.
     """
-    img = row.get("image")
+    if not img_val:
+        return None
+    img = str(img_val).strip()
     if not img:
         return None
-    img = img.strip()
     if img.startswith("//"):
         img = "https:" + img
     if img.startswith("http://") or img.startswith("https://"):
@@ -195,8 +214,6 @@ def process_csv(
     # Read CSV using configured encoding. We assume headers are already
     # formatted correctly (no BOM/normalization needed) and that callers
     # use the canonical lower-case column names (e.g., 'id','title','pubDate','image').
-    from news_mvp.settings import get_runtime_csv_encoding
-
     csv_enc = get_runtime_csv_encoding()
     with open(input_path, newline="", encoding=csv_enc) as inf:
         reader = csv.DictReader(inf)
@@ -206,123 +223,163 @@ def process_csv(
             print("input CSV has no rows")
             return [], [], stats
 
-        # determine source name
+        # determine source name: strict schema-driven (no header fallbacks)
         if source_override:
             source_name = source_override
         else:
-            # look for a 'source' column in provided headers (case-sensitive per assumption)
-            source_name = None
-            lowered_headers = {f.lower() for f in original_fieldnames}
-            if "source" in lowered_headers:
-                # assume the 'source' header exists and use the value from the first row
-                source_name = rows[0].get("source", "unknown")
+            # Use the canonical source field from the schema (required[4])
+            required = get_schema_required(schema_stage)
+            try:
+                source_field = required[4]
+            except Exception:
+                raise RuntimeError(
+                    "Schema does not define a source field at required[4]"
+                )
+
+            if source_field not in original_fieldnames:
+                raise RuntimeError(
+                    f"Input CSV is missing required source column '{source_field}' as defined by the schema"
+                )
+
+            source_name = rows[0].get(source_field)
             if not source_name:
-                base = os.path.basename(input_path)
-                source_name = (
-                    base.split("_")[0] if "_" in base else os.path.splitext(base)[0]
+                raise RuntimeError(
+                    f"Source value in column '{source_field}' is empty in the first row; cannot determine source"
                 )
 
-        # Force output headers to match canonical schema
-        from news_mvp.schemas import schema_fieldnames, Stage
+    # Force output headers to match canonical schema
+    out_fieldnames: List[str] = schema_fieldnames(schema_stage)
 
-        out_fieldnames: List[str] = schema_fieldnames(Stage.ETL_BEFORE_MERGE)
+    # ensure per-source pics directory exists (images will be stored in data/pics/{source})
+    pic_dir_src = os.path.join(PIC_DIR, source_name)
+    os.makedirs(pic_dir_src, exist_ok=True)
 
-        # ensure per-source pics directory exists (images will be stored in data/pics/{source})
-        pic_dir_src = os.path.join(PIC_DIR, source_name)
-        os.makedirs(pic_dir_src, exist_ok=True)
+    # Resolve canonical fieldnames from schema/settings
+    required = get_schema_required(schema_stage)
+    article_id_field = required[0]
+    source_field = required[4]
 
-        # sanitize text fields and (optionally) download images
-        for idx, row in enumerate(rows, start=1):
-            stats["rows"] += 1
-            # sanitize several common textual columns (normalized to lowercase headers)
-            for col in ["title", "description", "category", "creator", "imagecaption"]:
-                if col in row:
-                    row[col] = sanitize_html(row.get(col, ""))
+    image_field = get_image_fieldname(schema_stage)
+    description_field = get_description_fieldname(schema_stage)
+    category_field = get_category_fieldname(schema_stage)
+    author_field = get_author_fieldname(schema_stage)
+    # image caption - strict schema match (no fallbacks)
+    imagecaption_field = get_imagecaption_fieldname(schema_stage)
 
-            img_url = find_image_url(row)
-            # preserve the original remote filename (without ext) in imageNameRemote
-            imageName_remote = ""
-            if img_url:
-                # try to extract original remote basename
-                try:
-                    remote_basename = os.path.basename(img_url.split("?")[0])
-                    imageName_remote = os.path.splitext(remote_basename)[0]
-                except Exception:
-                    imageName_remote = ""
+    # Use exact canonical fieldnames (strict headers from schema)
+    k_article_id = article_id_field
+    k_source = source_field
+    k_image = image_field
+    k_description = description_field
+    k_category = category_field
+    k_author = author_field
+    k_imagecaption = imagecaption_field
 
-                try:
-                    filename, basename = filename_from_id_or_fallback(
-                        row, idx, img_url, source_name
-                    )
-                except ValueError as e:
-                    print(f"ERROR: {e}")
-                    row["image_name"] = ""
-                    row["imagenameremote"] = ""
-                    stats["images_missing"] += 1
-                    continue
+    # image_name and image_credit are part of the schema (canonical names)
+    image_name_field = get_image_name_fieldname(schema_stage)
+    image_credit_field = get_image_credit_fieldname(schema_stage)
+    k_image_name = image_name_field
+    k_image_credit = image_credit_field
 
-                dest = os.path.join(pic_dir_src, filename)
+    # sanitize text fields (omit title per request) and (optionally) download images
+    for idx, row in enumerate(rows, start=1):
+        stats["rows"] += 1
+        # sanitize non-title text fields using canonical keys
+        for col in [k_description, k_category, k_author, k_imagecaption]:
+            if col in row:
+                row[col] = sanitize_html(row.get(col, ""))
 
-                # Check if image already exists BEFORE setting up download
-                if os.path.exists(dest):
-                    # Image already exists, use it without downloading
-                    # We store only the filename in `image` (no path), so the
-                    # image field is recoverable by combining with data/pics/{source}
-                    row["image"] = os.path.basename(dest)
-                    # internal lowercase key for the downloaded filename index
-                    # Only set image_name if a remote original name was found; otherwise keep empty
-                    row["imagenameremote"] = imageName_remote
-                    row["image_name"] = imageName_remote or ""
-                    # Don't increment images_downloaded since we didn't download
-                    # Don't set _pending_* fields since no download needed
-                    continue
+        # find image URL from canonical image column (strict)
+        img_val = row.get(k_image)
+        img_url = find_image_url(img_val)
+        # preserve the original remote filename (without ext) in imageNameRemote
+        imageName_remote = ""
+        if img_url:
+            # try to extract original remote basename
+            try:
+                remote_basename = os.path.basename(img_url.split("?")[0])
+                imageName_remote = os.path.splitext(remote_basename)[0]
+            except Exception:
+                imageName_remote = ""
 
-                # Set up for download
-                row.setdefault("image", "")
-                row.setdefault("image_name", "")
-                row["_pending_img_url"] = img_url
-                row["_pending_dest"] = dest
-                row["_pending_basename"] = basename
-                row["imagenameremote"] = imageName_remote
-            else:
-                row["image_name"] = ""
-                row["imagenameremote"] = ""
+            try:
+                # filename generator expects the article_id present and non-empty
+                aid_val = row.get(k_article_id) or ""
+                filename, basename = filename_from_id_or_fallback(
+                    str(aid_val), idx, img_url, source_name
+                )
+            except ValueError as e:
+                print(f"ERROR: {e}")
+                row[k_image_name] = ""
                 stats["images_missing"] += 1
+                # Skip this row's image handling and continue with next row
+                continue
 
-            # fill missing image_Credit with source_name
-            if not row.get("image_credit"):
-                row["image_credit"] = (
-                    source_override or row.get("source") or source_name
-                )
+            dest = os.path.join(pic_dir_src, filename)
 
-        # At this point rows have pending download info in _pending_* if they need download.
-        # If sync mode (default) perform downloads now; async mode is handled by caller.
+            # Check if image already exists BEFORE setting up download
+            if os.path.exists(dest):
+                # Image already exists, use it without downloading
+                # We store only the filename in `image` (no path), so the
+                # image field is recoverable by combining with data/pics/{source}
+                # store into canonical image and image_name fields
+                row[k_image] = os.path.basename(dest)
+                row[k_image_name] = imageName_remote or ""
+                # Don't increment images_downloaded since we didn't download
+                # Don't set _pending_* fields since no download needed
+                continue
+
+            # Set up for download
+            row.setdefault(k_image, "")
+            row.setdefault(k_image_name, "")
+            row["_pending_img_url"] = img_url
+            row["_pending_dest"] = dest
+            row["_pending_basename"] = basename
+            # store remote basename into schema image_name field when available
+            if imageName_remote:
+                row[k_image_name] = imageName_remote
+        else:
+            row[k_image_name] = ""
+            stats["images_missing"] += 1
+
+        # fill missing image_Credit with source_name
+        if not row.get(k_image_credit):
+            # prefer explicit source column (strict canonical source field)
+            row[k_image_credit] = source_override or row.get(k_source) or source_name
+
+    # At this point rows have pending download info in _pending_* if they need download.
+    # If sync mode (default) perform downloads now; async mode is handled by caller.
     return rows, out_fieldnames, stats
 
 
 def perform_sync_downloads(rows: List[Dict[str, str]], stats: Dict[str, int]) -> None:
+    # Use canonical fieldnames from schema
+    # uses module-level `schema_stage`
+    img_field = get_image_fieldname(schema_stage)
+    img_name_field = get_image_name_fieldname(schema_stage)
+
     for row in rows:
         img_url = row.get("_pending_img_url")
         if not img_url:
             continue
         dest = row.get("_pending_dest")
         if not dest or not isinstance(dest, str):
-            row["image_name"] = ""
+            row[img_name_field] = ""
             stats["images_missing"] += 1
             continue
         # No need to check existence here - already checked in process_csv
         succeeded = download_image(img_url, dest)
         if succeeded:
-            # store only the filename in `image`
-            row["image"] = os.path.basename(dest)
-            # Set image_name only if remote basename is present; otherwise leave empty
-            if row.get("imagenameremote"):
-                row["image_name"] = str(row.get("imagenameremote"))
+            # store only the filename in canonical image field
+            row[img_field] = os.path.basename(dest)
+            # Set image_name only if remote basename was stored earlier; otherwise leave empty
+            if row.get(img_name_field):
+                row[img_name_field] = str(row.get(img_name_field))
             else:
-                row["image_name"] = ""
+                row[img_name_field] = ""
             stats["images_downloaded"] += 1
         else:
-            row["image_Name"] = ""
+            row[img_name_field] = ""
             stats["images_missing"] += 1
 
 
@@ -330,6 +387,8 @@ async def perform_async_downloads(
     rows: List[Dict[str, str]], stats: Dict[str, int], concurrency: int
 ) -> None:
     sem = asyncio.Semaphore(concurrency)
+    # uses module-level `schema_stage`
+
     async with httpx.AsyncClient(
         timeout=DEFAULT_TIMEOUT,
         follow_redirects=True,
@@ -342,21 +401,25 @@ async def perform_async_downloads(
                 return
             dest = row.get("_pending_dest")
             if not dest or not isinstance(dest, str):
-                row["image_Name"] = ""
+                # use canonical image_name field
+                img_name_field = get_image_name_fieldname(schema_stage)
+                row[img_name_field] = ""
                 stats["images_missing"] += 1
                 return
             async with sem:
                 ok = await download_image_async(img_url, dest, client)
+            img_field = get_image_fieldname(schema_stage)
+            img_name_field = get_image_name_fieldname(schema_stage)
             if ok:
-                # store only the filename in `image`
-                row["image"] = os.path.basename(dest)
-                if row.get("imagenameremote"):
-                    row["image_name"] = row["imagenameremote"]
+                # store only the filename in canonical image field
+                row[img_field] = os.path.basename(dest)
+                if row.get(img_name_field):
+                    row[img_name_field] = row[img_name_field]
                 else:
-                    row["image_name"] = ""
+                    row[img_name_field] = ""
                 stats["images_downloaded"] += 1
             else:
-                row["image_name"] = ""
+                row[img_name_field] = ""
                 stats["images_missing"] += 1
 
         await asyncio.gather(*(worker(r) for r in rows))
@@ -366,8 +429,6 @@ def write_output_csv(
     output_path: str, rows: List[Dict[str, str]], out_fieldnames: List[str]
 ) -> None:
     # Write using utf-8-sig so the file is friendly to Windows editors and tools
-    from news_mvp.settings import get_runtime_csv_encoding
-
     csv_enc = get_runtime_csv_encoding()
     with open(output_path, "w", newline="", encoding=csv_enc) as outf:
         writer = csv.DictWriter(outf, fieldnames=out_fieldnames)
@@ -375,17 +436,9 @@ def write_output_csv(
         for row in rows:
             # Map internal lower-case keys back to preferred camelCase output headers
             out_row: Dict[str, str] = {}
+            # The rows use canonical header names as keys; prefer those directly.
             for header in out_fieldnames:
-                h_low = header.lower()
-                if h_low == "image_name":
-                    out_row[header] = row.get("image_name", "")
-                elif h_low == "image_credit":
-                    out_row[header] = row.get("image_credit", "")
-                elif h_low == "image":
-                    out_row[header] = row.get("image", "")
-                else:
-                    # default mapping: use the lower-case key if present, else empty
-                    out_row[header] = row.get(h_low, "")
+                out_row[header] = row.get(header, "")
             writer.writerow(out_row)
 
 

@@ -13,7 +13,7 @@ Primary behavior
  - Fetch RSS bytes from the given `--rss-url`.
  - Save the raw XML to `data/raw/{source}/{source}_{TIMESTAMP}.xml`.
  - Convert XML to JSON (via `etl.transform.xml_to_json.xml_file_to_json`) and
-   write `{source}_{TIMESTAMP}.json` next to the XML (UTF-8 with BOM).
+   write `{source}_{TIMESTAMP}.json` next to the XML (UTF-8-sig with BOM).
  - Extract items and write `{source}_{TIMESTAMP}.csv` next to the JSON.
  - Optionally post-process the CSV using `etl.transform.postprocess_csv.postprocess_csv`.
  - Print the generated CSV path to stdout (one-line, last line) for downstream

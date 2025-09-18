@@ -82,15 +82,58 @@ def find_by_attr_or_css(soup: BeautifulSoup, spec: str):
         return []
 
 
+def parse_fallback_selectors(spec: str) -> list[str]:
+    """Parse fallback selector syntax with [] brackets.
+
+    Example: '[selector1],[selector2]' -> ['selector1', 'selector2']
+    Example: 'selector' -> ['selector']
+    """
+    if not spec:
+        return []
+
+    spec = spec.strip()
+    if not (spec.startswith("[") and "]" in spec):
+        return [spec]
+
+    # Extract content within brackets and split by ],[
+    selectors = []
+    current = ""
+    in_bracket = False
+    i = 0
+
+    while i < len(spec):
+        char = spec[i]
+        if char == "[":
+            in_bracket = True
+            current = ""
+        elif char == "]":
+            if in_bracket and current.strip():
+                selectors.append(current.strip())
+            in_bracket = False
+            current = ""
+        elif char == "," and not in_bracket:
+            # Skip comma outside brackets
+            pass
+        elif in_bracket:
+            current += char
+        i += 1
+
+    return selectors if selectors else [spec]
+
+
 def parse_dsl(spec: str) -> Dict[str, str]:
     """Parse semicolon-separated key=value pairs into a dict.
 
     Example: 'aria-label=Breadcrumb;list=ul;item=a;include_parent=FALSE'
+    Now also supports: 'h3 class;inst_num=1' to select specific instances
     """
     parts = [p.strip() for p in spec.split(";") if p.strip()]
     out: Dict[str, str] = {}
     for p in parts:
         if "=" not in p:
+            # Handle bare selectors like 'h3 class' -> css='h3 class'
+            if p and "css" not in out:
+                out["css"] = p
             continue
         k, v = p.split("=", 1)
         out[k.strip().lower()] = v.strip()
@@ -98,12 +141,23 @@ def parse_dsl(spec: str) -> Dict[str, str]:
 
 
 def texts_from_css(
-    soup: BeautifulSoup, selector: str, include_parent: bool = False
+    soup: BeautifulSoup,
+    selector: str,
+    include_parent: bool = False,
+    inst_num: Optional[int] = None,
 ) -> list[str]:
     try:
         nodes = soup.select(selector)
     except Exception:
         return []
+
+    # If inst_num is specified, select only that instance (1-based)
+    if inst_num is not None and inst_num > 0:
+        if len(nodes) >= inst_num:
+            nodes = [nodes[inst_num - 1]]
+        else:
+            return []
+
     texts: list[str] = []
     for n in nodes:
         if not isinstance(n, Tag):
@@ -285,11 +339,14 @@ def collect_children_text_from_range(
 def scrape_article(
     url: str, selectors_for_source: Dict[str, Optional[str]], timeout: float = 10.0
 ):
-    # Return dict with possible keys: category, creator, description_insert
+    # Return dict with possible keys: category, creator, description_insert, description, image_caption, image_credit
     result: Dict[str, Optional[str]] = {
         "category": None,
         "creator": None,
         "description_insert": None,
+        "description": None,
+        "image_caption": None,
+        "image_credit": None,
     }
     try:
         with httpx.Client(
@@ -311,292 +368,691 @@ def scrape_article(
         # As a last resort, try the default parser
         soup = BeautifulSoup(html)
 
-    # creator selector might be under 'author' key in selectors.csv
-    # New simplified syntax: selector[@attr]
+    # author selector might be under 'author' key in selectors.csv
+    # New simplified syntax: selector[@attr] with fallback support [selector1],[selector2]
     author_spec_raw = selectors_for_source.get("author")
     if author_spec_raw:
-        # support css: prefixed selector or DSL (semicolon-separated) for aria-list extraction
-        if author_spec_raw.lower().startswith("css:") or ";" in author_spec_raw:
-            # DSL or explicit css
-            if author_spec_raw.lower().startswith("css:"):
-                sel = author_spec_raw[len("css:") :]
-                texts = texts_from_css(soup, sel, include_parent=False)
-            else:
-                spec = parse_dsl(author_spec_raw)
-                if "css" in spec:
-                    sel = spec["css"]
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    texts = texts_from_css(soup, sel, include_parent=include_parent)
+        # Parse fallback selectors
+        fallback_selectors = parse_fallback_selectors(author_spec_raw)
+        author_result = None
+        used_fallback = False
+
+        for idx, selector_spec in enumerate(fallback_selectors):
+            if idx > 0:
+                used_fallback = True
+
+            # support css: prefixed selector or DSL (semicolon-separated) for aria-list extraction
+            if selector_spec.lower().startswith("css:") or ";" in selector_spec:
+                # DSL or explicit css
+                if selector_spec.lower().startswith("css:"):
+                    sel = selector_spec[len("css:") :]
+                    texts = texts_from_css(soup, sel, include_parent=False)
                 else:
-                    # look for aria-* or aria/id style labelled element
-                    # support aria and aria-* keys
-                    aria_val = (
-                        spec.get("aria")
-                        or spec.get("id")
-                        or spec.get("aria-labelledby")
-                    )
-                    aria_attr = None
-                    aria_attr_val = None
-                    if not aria_val:
-                        for k, v in spec.items():
-                            if k.startswith("aria-"):
-                                aria_attr = k
-                                aria_attr_val = v
-                                break
-                    list_tag = spec.get("list")
-                    item_sel = spec.get("item")
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    if aria_val:
-                        els = soup.find_all(
-                            attrs={"aria-labelledby": aria_val}
-                        ) or soup.find_all(id=aria_val)
+                    spec = parse_dsl(selector_spec)
+                    if "css" in spec:
+                        sel = spec["css"]
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        inst_num = None
+                        if "inst_num" in spec:
+                            try:
+                                inst_num = int(spec["inst_num"])
+                            except ValueError:
+                                pass
+                        texts = texts_from_css(
+                            soup, sel, include_parent=include_parent, inst_num=inst_num
+                        )
+                    else:
+                        # look for aria-* or aria/id style labelled element
+                        # support aria and aria-* keys
+                        aria_val = (
+                            spec.get("aria")
+                            or spec.get("id")
+                            or spec.get("aria-labelledby")
+                        )
+                        aria_attr = None
+                        aria_attr_val = None
+                        if not aria_val:
+                            for k, v in spec.items():
+                                if k.startswith("aria-"):
+                                    aria_attr = k
+                                    aria_attr_val = v
+                                    break
+                        list_tag = spec.get("list")
+                        item_sel = spec.get("item")
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        if aria_val:
+                            els = soup.find_all(
+                                attrs={"aria-labelledby": aria_val}
+                            ) or soup.find_all(id=aria_val)
+                            texts = []
+                            for el in els:
+                                if isinstance(el, Tag):
+                                    texts.extend(
+                                        texts_from_attr_list_element(
+                                            el, list_tag, item_sel, include_parent
+                                        )
+                                    )
+                        elif aria_attr and aria_attr_val:
+                            el = soup.find(attrs={aria_attr: aria_attr_val})
+                            if isinstance(el, Tag):
+                                texts = texts_from_attr_list_element(
+                                    el, list_tag, item_sel, include_parent
+                                )
+                            else:
+                                texts = []
+                        else:
+                            texts = []
+                if texts:
+                    author_result = "|".join(texts)
+                    break
+            else:
+                sel, attr = parse_selector_and_attr(selector_spec)
+                els = find_by_attr_or_css(soup, sel)
+                if els:
+                    texts = []
+                    for el in els:
+                        if attr:
+                            # extract requested attribute from the element (or its first child anchor)
+                            if isinstance(el, Tag):
+                                if el.has_attr(attr):
+                                    v = el.get(attr)
+                                    if v:
+                                        texts.append(str(v).strip())
+                                        continue
+                                # try first descendant with the attribute
+                                found = None
+                                for d in el.find_all(recursive=True):
+                                    if isinstance(d, Tag) and d.has_attr(attr):
+                                        found = d.get(attr)
+                                        break
+                                if found:
+                                    texts.append(str(found).strip())
+                                    continue
+                        # no attr requested: prefer anchor text, then element text
+                        if isinstance(el, Tag):
+                            a = el.find("a")
+                            if a and a.get_text(strip=True):
+                                texts.append(a.get_text(strip=True))
+                                continue
+                        t = el.get_text(strip=True)
+                        if t:
+                            texts.append(t)
+                    if texts:
+                        author_result = "|".join(texts)
+                        break
+
+        # Apply fallback normalization for authors
+        if author_result:
+            if used_fallback and ", " in author_result:
+                author_result = author_result.replace(", ", "|")
+            # Clean up trailing separators
+            author_result = author_result.rstrip("|").rstrip(",").strip()
+            if author_result:  # Only set if not empty after cleanup
+                result["creator"] = author_result
+
+    # category selector: support css: prefix or semaphore DSL for aria/list extraction, with fallback support
+    cat_spec_raw = selectors_for_source.get("category")
+    if cat_spec_raw:
+        # Parse fallback selectors
+        fallback_selectors = parse_fallback_selectors(cat_spec_raw)
+
+        for selector_spec in fallback_selectors:
+            if selector_spec.lower().startswith("css:") or ";" in selector_spec:
+                if selector_spec.lower().startswith("css:"):
+                    sel = selector_spec[len("css:") :]
+                    texts = texts_from_css(soup, sel, include_parent=False)
+                    if texts:
+                        # join multiple category parts with '|' to preserve ordered hierarchy
+                        result["category"] = "|".join(texts)
+                        break
+                else:
+                    spec = parse_dsl(selector_spec)
+                    if "css" in spec:
+                        sel = spec["css"]
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        inst_num = None
+                        if "inst_num" in spec:
+                            try:
+                                inst_num = int(spec["inst_num"])
+                            except ValueError:
+                                pass
+                        texts = texts_from_css(
+                            soup, sel, include_parent=include_parent, inst_num=inst_num
+                        )
+                        if texts:
+                            result["category"] = "|".join(texts)
+                            break
+                    else:
+                        aria_val = (
+                            spec.get("aria")
+                            or spec.get("id")
+                            or spec.get("aria-labelledby")
+                        )
+                        aria_attr = None
+                        aria_attr_val = None
+                        if not aria_val:
+                            for k, v in spec.items():
+                                if k.startswith("aria-"):
+                                    aria_attr = k
+                                    aria_attr_val = v
+                                    break
+                        list_tag = spec.get("list")
+                        item_sel = spec.get("item")
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
                         texts = []
-                        for el in els:
+                        if aria_val:
+                            els = soup.find_all(
+                                attrs={"aria-labelledby": aria_val}
+                            ) or soup.find_all(id=aria_val)
+                            for el in els:
+                                if isinstance(el, Tag):
+                                    texts.extend(
+                                        texts_from_attr_list_element(
+                                            el, list_tag, item_sel, include_parent
+                                        )
+                                    )
+                        elif aria_attr and aria_attr_val:
+                            el = soup.find(attrs={aria_attr: aria_attr_val})
                             if isinstance(el, Tag):
                                 texts.extend(
                                     texts_from_attr_list_element(
                                         el, list_tag, item_sel, include_parent
                                     )
                                 )
-                    elif aria_attr and aria_attr_val:
-                        el = soup.find(attrs={aria_attr: aria_attr_val})
-                        if isinstance(el, Tag):
-                            texts = texts_from_attr_list_element(
-                                el, list_tag, item_sel, include_parent
-                            )
-                        else:
-                            texts = []
-                    else:
-                        texts = []
-            if texts:
-                result["creator"] = ", ".join(texts)
-        else:
-            sel, attr = parse_selector_and_attr(author_spec_raw)
-            els = find_by_attr_or_css(soup, sel)
-            if els:
-                texts = []
-                for el in els:
-                    if attr:
-                        # extract requested attribute from the element (or its first child anchor)
-                        if isinstance(el, Tag):
+                        if texts:
+                            result["category"] = "|".join(texts)
+                            break
+            else:
+                sel, attr = parse_selector_and_attr(selector_spec)
+                els = find_by_attr_or_css(soup, sel)
+                if els:
+                    # collect all meaningful texts or attributes and join with '|'
+                    collected: list[str] = []
+                    for el in els:
+                        if attr and isinstance(el, Tag):
                             if el.has_attr(attr):
                                 v = el.get(attr)
                                 if v:
-                                    texts.append(str(v).strip())
+                                    content = str(v).strip()
+                                    # Handle sub-channel-name formatting: convert "/" to "|"
+                                    if (
+                                        attr == "content"
+                                        and el.get("property") == "sub-channel-name"
+                                    ):
+                                        content = content.replace("/", "|")
+                                    collected.append(content)
                                     continue
-                            # try first descendant with the attribute
+                            # look for descendant with the attribute
                             found = None
+                            found_element = None
                             for d in el.find_all(recursive=True):
                                 if isinstance(d, Tag) and d.has_attr(attr):
                                     found = d.get(attr)
+                                    found_element = d
                                     break
                             if found:
-                                texts.append(str(found).strip())
+                                content = str(found).strip()
+                                # Handle sub-channel-name formatting for descendants too
+                                if (
+                                    attr == "content"
+                                    and isinstance(found_element, Tag)
+                                    and found_element.get("property")
+                                    == "sub-channel-name"
+                                ):
+                                    content = content.replace("/", "|")
+                                collected.append(content)
                                 continue
-                    # no attr requested: prefer anchor text, then element text
-                    if isinstance(el, Tag):
-                        a = el.find("a")
-                        if a and a.get_text(strip=True):
-                            texts.append(a.get_text(strip=True))
-                            continue
-                    t = el.get_text(strip=True)
-                    if t:
-                        texts.append(t)
-                if texts:
-                    result["creator"] = ", ".join(texts)
+                        t = el.get_text(strip=True)
+                        if t:
+                            collected.append(t)
+                    if collected:
+                        result["category"] = "|".join(collected)
+                        break
 
-    # category selector: support css: prefix or semaphore DSL for aria/list extraction, else fallback
-    cat_spec_raw = selectors_for_source.get("category")
-    if cat_spec_raw:
-        if cat_spec_raw.lower().startswith("css:") or ";" in cat_spec_raw:
-            if cat_spec_raw.lower().startswith("css:"):
-                sel = cat_spec_raw[len("css:") :]
-                texts = texts_from_css(soup, sel, include_parent=False)
-                if texts:
-                    # join multiple category parts with '|' to preserve ordered hierarchy
-                    result["category"] = "|".join(texts)
-            else:
-                spec = parse_dsl(cat_spec_raw)
-                if "css" in spec:
-                    sel = spec["css"]
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    texts = texts_from_css(soup, sel, include_parent=include_parent)
+    # description: use description selector for both insert (contains {}) and full replacement (empty)
+    desc_spec = selectors_for_source.get("description")
+    if desc_spec:
+        # Parse fallback selectors for description
+        fallback_selectors = parse_fallback_selectors(desc_spec)
+
+        for selector_spec in fallback_selectors:
+            if selector_spec.lower().startswith("css:") or ";" in selector_spec:
+                if selector_spec.lower().startswith("css:"):
+                    sel = selector_spec[len("css:") :]
+                    texts = texts_from_css(soup, sel, include_parent=False)
                     if texts:
-                        result["category"] = "|".join(texts)
+                        result["description_insert"] = texts[0]
+                        result["description"] = texts[0]
+                        break
                 else:
-                    aria_val = (
-                        spec.get("aria")
-                        or spec.get("id")
-                        or spec.get("aria-labelledby")
-                    )
-                    aria_attr = None
-                    aria_attr_val = None
-                    if not aria_val:
-                        for k, v in spec.items():
-                            if k.startswith("aria-"):
-                                aria_attr = k
-                                aria_attr_val = v
-                                break
-                    list_tag = spec.get("list")
-                    item_sel = spec.get("item")
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    texts = []
-                    if aria_val:
-                        els = soup.find_all(
-                            attrs={"aria-labelledby": aria_val}
-                        ) or soup.find_all(id=aria_val)
-                        for el in els:
+                    spec = parse_dsl(selector_spec)
+                    if "css" in spec:
+                        sel = spec["css"]
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        texts = texts_from_css(soup, sel, include_parent=include_parent)
+                        if texts:
+                            result["description_insert"] = texts[0]
+                            result["description"] = texts[0]
+                            break
+                    else:
+                        aria_val = (
+                            spec.get("aria")
+                            or spec.get("id")
+                            or spec.get("aria-labelledby")
+                        )
+                        aria_attr = None
+                        aria_attr_val = None
+                        if not aria_val:
+                            for k, v in spec.items():
+                                if k.startswith("aria-"):
+                                    aria_attr = k
+                                    aria_attr_val = v
+                                    break
+                        list_tag = spec.get("list")
+                        item_sel = spec.get("item")
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        texts = []
+                        if aria_val:
+                            els = soup.find_all(
+                                attrs={"aria-labelledby": aria_val}
+                            ) or soup.find_all(id=aria_val)
+                            for el in els:
+                                if isinstance(el, Tag):
+                                    texts.extend(
+                                        texts_from_attr_list_element(
+                                            el, list_tag, item_sel, include_parent
+                                        )
+                                    )
+                        elif aria_attr and aria_attr_val:
+                            el = soup.find(attrs={aria_attr: aria_attr_val})
                             if isinstance(el, Tag):
                                 texts.extend(
                                     texts_from_attr_list_element(
                                         el, list_tag, item_sel, include_parent
                                     )
                                 )
-                    elif aria_attr and aria_attr_val:
-                        el = soup.find(attrs={aria_attr: aria_attr_val})
-                        if isinstance(el, Tag):
-                            texts.extend(
-                                texts_from_attr_list_element(
-                                    el, list_tag, item_sel, include_parent
-                                )
-                            )
-                    if texts:
-                        result["category"] = "|".join(texts)
-        else:
-            sel, attr = parse_selector_and_attr(cat_spec_raw)
-            els = find_by_attr_or_css(soup, sel)
-            if els:
-                # collect all meaningful texts or attributes and join with '|'
-                collected: list[str] = []
-                for el in els:
-                    if attr and isinstance(el, Tag):
-                        if el.has_attr(attr):
-                            v = el.get(attr)
-                            if v:
-                                collected.append(str(v).strip())
-                                continue
-                        # look for descendant with the attribute
-                        found = None
-                        for d in el.find_all(recursive=True):
-                            if isinstance(d, Tag) and d.has_attr(attr):
-                                found = d.get(attr)
-                                break
-                        if found:
-                            collected.append(str(found).strip())
-                            continue
-                    t = el.get_text(strip=True)
-                    if t:
-                        collected.append(t)
-                if collected:
-                    result["category"] = "|".join(collected)
-
-    # description insert: use description selector and take the first child element's text
-    desc_spec = selectors_for_source.get("description")
-    if desc_spec:
-        if desc_spec.lower().startswith("css:") or ";" in desc_spec:
-            if desc_spec.lower().startswith("css:"):
-                sel = desc_spec[len("css:") :]
-                texts = texts_from_css(soup, sel, include_parent=False)
-                if texts:
-                    result["description_insert"] = texts[0]
+                        if texts:
+                            result["description_insert"] = texts[0]
+                            result["description"] = texts[0]
+                            break
             else:
-                spec = parse_dsl(desc_spec)
-                if "css" in spec:
-                    sel = spec["css"]
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    texts = texts_from_css(soup, sel, include_parent=include_parent)
-                    if texts:
-                        result["description_insert"] = texts[0]
-                else:
-                    aria_val = (
-                        spec.get("aria")
-                        or spec.get("id")
-                        or spec.get("aria-labelledby")
-                    )
-                    aria_attr = None
-                    aria_attr_val = None
-                    if not aria_val:
-                        for k, v in spec.items():
-                            if k.startswith("aria-"):
-                                aria_attr = k
-                                aria_attr_val = v
-                                break
-                    list_tag = spec.get("list")
-                    item_sel = spec.get("item")
-                    include_parent = (
-                        spec.get("include_parent", "FALSE").upper() == "TRUE"
-                    )
-                    texts = []
-                    if aria_val:
-                        els = soup.find_all(
-                            attrs={"aria-labelledby": aria_val}
-                        ) or soup.find_all(id=aria_val)
-                        for el in els:
-                            texts.extend(
-                                texts_from_attr_list_element(
-                                    el, list_tag, item_sel, include_parent
-                                )
-                            )
-                    elif aria_attr and aria_attr_val:
-                        el = soup.find(attrs={aria_attr: aria_attr_val})
-                        if el:
-                            texts.extend(
-                                texts_from_attr_list_element(
-                                    el, list_tag, item_sel, include_parent
-                                )
-                            )
-                    if texts:
-                        result["description_insert"] = texts[0]
-        else:
-            sel, attr = parse_selector_and_attr(desc_spec)
-            els = find_by_attr_or_css(soup, sel)
-            if els:
-                first = els[0]
-                if attr and isinstance(first, Tag):
-                    if first.has_attr(attr):
-                        txt = str(first.get(attr)).strip()
-                    else:
-                        found = None
-                        for d in first.find_all(recursive=True):
-                            if isinstance(d, Tag) and d.has_attr(attr):
-                                found = d.get(attr)
-                                break
-                        txt = (
-                            str(found).strip() if found else first.get_text(strip=True)
-                        )
-                else:
-                    # prefer first child anchor/text, otherwise element text
-                    if isinstance(first, Tag):
-                        a = first.find("a")
-                        if a and a.get_text(strip=True):
-                            txt = a.get_text(strip=True)
+                sel, attr = parse_selector_and_attr(selector_spec)
+                els = find_by_attr_or_css(soup, sel)
+                if els:
+                    first = els[0]
+                    if attr and isinstance(first, Tag):
+                        if first.has_attr(attr):
+                            txt = str(first.get(attr)).strip()
                         else:
-                            # first child's text if any
-                            child = None
-                            for ch in first.find_all(recursive=False):
-                                if ch.get_text(strip=True):
-                                    child = ch
+                            found = None
+                            for d in first.find_all(recursive=True):
+                                if isinstance(d, Tag) and d.has_attr(attr):
+                                    found = d.get(attr)
                                     break
-                            if child is None:
-                                txt = first.get_text(strip=True)
-                            else:
-                                txt = child.get_text(strip=True)
+                            txt = (
+                                str(found).strip()
+                                if found
+                                else first.get_text(strip=True)
+                            )
                     else:
-                        txt = str(first)
-                if txt:
-                    result["description_insert"] = txt
+                        # prefer first child anchor/text, otherwise element text
+                        if isinstance(first, Tag):
+                            a = first.find("a")
+                            if a and a.get_text(strip=True):
+                                txt = a.get_text(strip=True)
+                            else:
+                                # first child's text if any
+                                child = None
+                                for ch in first.find_all(recursive=False):
+                                    if ch.get_text(strip=True):
+                                        child = ch
+                                        break
+                                if child is None:
+                                    txt = first.get_text(strip=True)
+                                else:
+                                    txt = child.get_text(strip=True)
+                        else:
+                            txt = str(first)
+                    if txt:
+                        result["description_insert"] = txt
+                        result["description"] = txt
+                        break
+
+    # image_credit selector: extract from meta vr:image_credit
+    image_credit_spec = selectors_for_source.get("image_credit")
+    if image_credit_spec:
+        # Parse fallback selectors
+        fallback_selectors = parse_fallback_selectors(image_credit_spec)
+
+        for selector_spec in fallback_selectors:
+            if selector_spec.lower().startswith("css:") or ";" in selector_spec:
+                if selector_spec.lower().startswith("css:"):
+                    sel = selector_spec[len("css:") :]
+                    texts = texts_from_css(soup, sel, include_parent=False)
+                    if texts:
+                        result["image_credit"] = texts[0]
+                        break
+                else:
+                    spec = parse_dsl(selector_spec)
+                    if "css" in spec:
+                        sel = spec["css"]
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        texts = texts_from_css(soup, sel, include_parent=include_parent)
+                        if texts:
+                            result["image_credit"] = texts[0]
+                            break
+                    else:
+                        aria_val = (
+                            spec.get("aria")
+                            or spec.get("id")
+                            or spec.get("aria-labelledby")
+                        )
+                        aria_attr = None
+                        aria_attr_val = None
+                        if not aria_val:
+                            for k, v in spec.items():
+                                if k.startswith("aria-"):
+                                    aria_attr = k
+                                    aria_attr_val = v
+                                    break
+                        list_tag = spec.get("list")
+                        item_sel = spec.get("item")
+                        include_parent = (
+                            spec.get("include_parent", "FALSE").upper() == "TRUE"
+                        )
+                        texts = []
+                        if aria_val:
+                            els = soup.find_all(
+                                attrs={"aria-labelledby": aria_val}
+                            ) or soup.find_all(id=aria_val)
+                            for el in els:
+                                if isinstance(el, Tag):
+                                    texts.extend(
+                                        texts_from_attr_list_element(
+                                            el, list_tag, item_sel, include_parent
+                                        )
+                                    )
+                        elif aria_attr and aria_attr_val:
+                            el = soup.find(attrs={aria_attr: aria_attr_val})
+                            if isinstance(el, Tag):
+                                texts.extend(
+                                    texts_from_attr_list_element(
+                                        el, list_tag, item_sel, include_parent
+                                    )
+                                )
+                        if texts:
+                            result["image_credit"] = texts[0]
+                            break
+            else:
+                sel, attr = parse_selector_and_attr(selector_spec)
+                els = find_by_attr_or_css(soup, sel)
+                if els:
+                    first = els[0]
+                    if attr and isinstance(first, Tag):
+                        if first.has_attr(attr):
+                            txt = str(first.get(attr)).strip()
+                        else:
+                            found = None
+                            for d in first.find_all(recursive=True):
+                                if isinstance(d, Tag) and d.has_attr(attr):
+                                    found = d.get(attr)
+                                    break
+                            txt = (
+                                str(found).strip()
+                                if found
+                                else first.get_text(strip=True)
+                            )
+                    else:
+                        # prefer first child anchor/text, otherwise element text
+                        if isinstance(first, Tag):
+                            a = first.find("a")
+                            if a and a.get_text(strip=True):
+                                txt = a.get_text(strip=True)
+                            else:
+                                # first child's text if any
+                                child = None
+                                for ch in first.find_all(recursive=False):
+                                    if ch.get_text(strip=True):
+                                        child = ch
+                                        break
+                                if child is None:
+                                    txt = first.get_text(strip=True)
+                                else:
+                                    txt = child.get_text(strip=True)
+                        else:
+                            txt = str(first)
+                    if txt:
+                        result["image_credit"] = txt
+                        break
 
     return result
+
+
+def scrape_article_with_image_caption(
+    url: str,
+    selectors_for_source: Dict[str, Optional[str]],
+    image_url: Optional[str] = None,
+    timeout: float = 10.0,
+):
+    """Extended scraping function that also extracts image captions."""
+    # First do the regular scraping
+    result = scrape_article(url, selectors_for_source, timeout)
+
+    # If we have an image URL but no image_caption, try to extract it
+    if image_url and not result.get("image_caption"):
+        try:
+            with httpx.Client(
+                timeout=timeout, headers={"User-Agent": "news-etl-enhancer/1.0"}
+            ) as client:
+                r = client.get(url)
+                if r.status_code == 200:
+                    soup = BeautifulSoup(r.text, "html.parser")
+                    caption = extract_image_caption_if_missing(soup, image_url)
+                    if caption:
+                        result["image_caption"] = caption
+        except Exception:
+            pass  # Silently fail image caption extraction
+
+    return result
+
+
+def extract_image_caption_if_missing(
+    soup: BeautifulSoup, image_url: str
+) -> Optional[str]:
+    """Extract image caption for articles without image_caption.
+
+    Logic:
+    1. Find the img tag that matches the image field URL
+    2. Extract caption from title attribute, parent figcaption, or nearby caption elements
+    """
+    if not image_url:
+        return None
+
+    try:
+        # Extract key parts of the expected URL for matching
+        expected_parts = image_url.split("/")
+        expected_id = None
+        for part in expected_parts:
+            if len(part) > 20 and "-" in part:  # Likely the image ID
+                expected_id = part.split("/")[0]  # Remove any path after the ID
+                break
+
+        # Strategy 1: If we have expected image URL, find that specific image
+        if expected_id:
+            img_tags = soup.find_all("img")
+            for img in img_tags:
+                if isinstance(img, Tag):
+                    src = img.get("src", "") or ""
+                    if isinstance(src, str) and expected_id in src:
+                        caption = extract_caption_from_img_tag(img)
+                        if caption:
+                            return caption
+
+        # Strategy 2: Look for figure elements with images (most reliable)
+        figures = soup.find_all("figure")
+        for fig in figures:
+            if isinstance(fig, Tag):
+                img = fig.find("img")
+                if img and isinstance(img, Tag) and is_content_image(img):
+                    caption = extract_caption_from_img_tag(img)
+                    if caption and not is_subscription_text(caption):
+                        return caption
+
+        # Strategy 3: Look for large images in the main content area
+        content_selectors = [
+            "article",
+            '[class*="content"]',
+            '[class*="article"]',
+            '[class*="story"]',
+            "main",
+        ]
+
+        for sel in content_selectors:
+            try:
+                content_areas = soup.select(sel)
+                for content in content_areas:
+                    if isinstance(content, Tag):
+                        imgs = content.find_all("img")
+                        for img in imgs:
+                            if isinstance(img, Tag) and is_content_image(img):
+                                src = img.get("src", "") or ""
+                                if (
+                                    isinstance(src, str) and len(src) > 30
+                                ):  # Reasonable URL length
+                                    caption = extract_caption_from_img_tag(img)
+                                    if caption and not is_subscription_text(caption):
+                                        return caption
+            except Exception:
+                continue
+
+        return None
+
+    except Exception:
+        return None
+
+
+def is_content_image(img_tag) -> bool:
+    """Check if an image looks like main content (not ads, icons, etc.)."""
+    if not isinstance(img_tag, Tag):
+        return False
+
+    src = img_tag.get("src", "") or ""
+    if not isinstance(src, str):
+        return False
+
+    # Skip obviously non-content images
+    skip_patterns = [
+        "logo",
+        "icon",
+        "social",
+        "button",
+        "avatar",
+        "ad",
+        "banner",
+        "header",
+    ]
+    if any(pattern in src.lower() for pattern in skip_patterns):
+        return False
+
+    # Look for reasonable image dimensions
+    width = img_tag.get("width", "") or ""
+    height = img_tag.get("height", "") or ""
+
+    # If dimensions are specified and too small, skip
+    if width and isinstance(width, str) and width.isdigit() and int(width) < 100:
+        return False
+    if height and isinstance(height, str) and height.isdigit() and int(height) < 100:
+        return False
+
+    # Check if it's in a figure (good sign)
+    parent = img_tag.parent
+    levels = 0
+    while parent and levels < 3:
+        if isinstance(parent, Tag) and parent.name == "figure":
+            return True
+        parent = parent.parent
+        levels += 1
+
+    # If it has alt or title text, it's likely content
+    alt = img_tag.get("alt", "") or ""
+    title = img_tag.get("title", "") or ""
+    if (isinstance(alt, str) and len(alt) > 10) or (
+        isinstance(title, str) and len(title) > 10
+    ):
+        return True
+
+    return True  # Default to true for unknown cases
+
+
+def is_subscription_text(text: str) -> bool:
+    """Check if text is subscription/advertising content."""
+    if not text:
+        return False
+
+    subscription_patterns = [
+        "הדפסת כתבה",
+        "מנויים בלבד",
+        "לרכישת מינוי",
+        "ללא פרסומות",
+        "subscription",
+        "subscribe",
+    ]
+
+    return any(pattern in text for pattern in subscription_patterns)
+
+
+def extract_caption_from_img_tag(img_tag) -> Optional[str]:
+    """Extract the best available caption from an image tag."""
+    if not isinstance(img_tag, Tag):
+        return None
+
+    captions = []
+
+    # Check title attribute (often has full caption in Haaretz)
+    title = img_tag.get("title", "") or ""
+    if isinstance(title, str) and title.strip() and not is_subscription_text(title):
+        captions.append(("title", title.strip()))
+
+    # Check alt attribute
+    alt = img_tag.get("alt", "") or ""
+    if isinstance(alt, str) and alt.strip() and not is_subscription_text(alt):
+        captions.append(("alt", alt.strip()))
+
+    # Look for figcaption in parent elements
+    parent = img_tag.parent
+    levels = 0
+    while parent and levels < 4:
+        if isinstance(parent, Tag):
+            figcaption = parent.find("figcaption")
+            if figcaption:
+                caption_text = figcaption.get_text(strip=True)
+                if caption_text and not is_subscription_text(caption_text):
+                    captions.append(("figcaption", caption_text))
+                break
+        parent = parent.parent
+        levels += 1
+
+    if captions:
+        # Priority: title > figcaption > alt
+        priority = {"title": 1, "figcaption": 2, "alt": 3}
+        captions.sort(key=lambda x: priority.get(x[0], 4))
+        return captions[0][1]
+
+    return None
 
 
 def enhance_file(
@@ -646,34 +1102,81 @@ def enhance_file(
         rows = [r for r in reader]
         fieldnames = reader.fieldnames or []
 
+    # Determine canonical fieldnames from schema/settings to avoid hardcoded keys
+    from news_mvp.settings import (
+        get_author_fieldname,
+        get_category_fieldname,
+        get_description_fieldname,
+        get_schema_required,
+    )
+
+    # Use the ETL pre-merge schema stage for canonical fieldnames
+    from news_mvp.schemas import Stage
+
+    schema_stage = Stage.ETL_BEFORE_MERGE
+    creator_field = get_author_fieldname(schema_stage)
+    category_field = get_category_fieldname(schema_stage)
+    description_field = get_description_fieldname(schema_stage)
+    required_fields = get_schema_required(schema_stage)
+    # Per project convention required_fields[1] is the GUID field
+    guid_field = required_fields[1]
+
     for i, row in enumerate(rows, start=1):
         if max_rows and i > max_rows:
             break
-        # Only attempt scraping if creator or category missing, or description contains '{}'
-        need_creator = not (row.get("creator") or "").strip()
-        need_category = not (row.get("category") or "").strip()
-        desc = row.get("description") or ""
+        # Only attempt scraping if creator, category, image_caption, image_credit missing, or description contains '{}'
+        need_creator = not (row.get(creator_field) or "").strip()
+        need_category = not (row.get(category_field) or "").strip()
+        need_image_caption = not (row.get("image_caption") or "").strip()
+        need_image_credit = not (row.get("image_credit") or "").strip()
+        desc = row.get(description_field) or ""
         need_desc_insert = "{}" in desc
-        if not (need_creator or need_category or need_desc_insert):
+        need_description = not desc.strip()  # Check if description is empty
+
+        if not (
+            need_creator
+            or need_category
+            or need_image_caption
+            or need_image_credit
+            or need_desc_insert
+            or need_description
+        ):
             out_rows.append(row)
             continue
 
-        guid = row.get("guid") or ""
+        # GUID is taken from the schema required fields (index 1)
+        guid = row.get(guid_field) or ""
         if not guid:
             LOG.debug("No guid for row %s; skipping", i)
             out_rows.append(row)
             continue
 
-        scraped = scrape_article(guid, selectors_for_source)
-        # Apply scraped values
+        # Get image URL if we need to extract image caption
+        image_url = row.get("image") or "" if need_image_caption else None
+
+        # Use extended scraping function that can also extract image captions
+        scraped = scrape_article_with_image_caption(
+            guid, selectors_for_source, image_url
+        )
+
+        # Apply scraped values into canonical columns
         if need_creator and scraped.get("creator"):
-            row["creator"] = scraped["creator"]
+            row[creator_field] = scraped["creator"]
         if need_category and scraped.get("category"):
-            row["category"] = scraped["category"]
+            row[category_field] = scraped["category"]
+        if need_image_caption and scraped.get("image_caption"):
+            row["image_caption"] = scraped["image_caption"]
+        if need_image_credit and scraped.get("image_credit"):
+            row["image_credit"] = scraped["image_credit"]
         if need_desc_insert:
             ins = scraped.get("description_insert")
             if ins:
-                row["description"] = desc.replace("{}", ins, 1)
+                row[description_field] = desc.replace("{}", ins, 1)
+            else:
+                # Remove {} placeholder if no description was found
+                row[description_field] = desc.replace("{}", "", 1)
+        if need_description and scraped.get("description"):
+            row[description_field] = scraped["description"]
 
         out_rows.append(row)
         # polite delay
@@ -694,6 +1197,11 @@ def enhance_file(
 
     LOG.info("Wrote enhanced CSV: %s (rows=%d)", out_path, len(out_rows))
     return out_path
+
+
+# A function that runs the scraping for a specific column, that is partially filled
+# and fills the missing values from the start/end of the values in the column.
+# It gets true or false whether to fill from the start or the end.
 
 
 def main(argv=None) -> int:

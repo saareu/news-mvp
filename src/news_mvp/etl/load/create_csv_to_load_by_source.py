@@ -8,7 +8,7 @@ Usage:
 
 Behavior:
  - Reads master file from `data/master/master_{source}.csv` where `source` is detected from path (data/canonical/{source}/...)
- - Compares by `id` field (configurable) and writes rows not found to `<basename>_unenhanced.csv` in the same directory as the input.
+ - Compares by `article_id` field (configurable) and writes rows not found to `<basename>_unenhanced.csv` in the same directory as the input.
  - Writes UTF-8-SIG CSV and preserves header order from the input canonical CSV.
 """
 from __future__ import annotations
@@ -19,6 +19,13 @@ import logging
 from pathlib import Path
 from typing import Set
 from news_mvp.settings import get_runtime_csv_encoding
+from news_mvp.settings import get_schema_for_stage
+from news_mvp.schemas import Stage as SchemaStage
+
+
+# Resolve module-level default ID field from schema (strict - no fallback)
+# This will raise if the schema lookup fails so problems are caught early.
+ID_FIELD_DEFAULT = get_schema_for_stage(SchemaStage.ETL_BEFORE_MERGE)[0].name
 
 LOG = logging.getLogger("create_csv_to_load_by_source")
 
@@ -32,7 +39,7 @@ def detect_source_from_path(p: Path) -> str:
         return p.parent.name
 
 
-def read_master_ids(master_path: Path, id_field: str = "id") -> Set[str]:
+def read_master_ids(master_path: Path, id_field: str = ID_FIELD_DEFAULT) -> Set[str]:
     ids = set()
     if not master_path.exists():
         LOG.info("Master file not found: %s", master_path)
@@ -48,9 +55,16 @@ def read_master_ids(master_path: Path, id_field: str = "id") -> Set[str]:
 def create_unenhanced(
     input_path: Path,
     master_dir: Path | None = None,
-    id_field: str = "id",
+    id_field: str = ID_FIELD_DEFAULT,
     output_path: Path | None = None,
 ) -> Path:
+    """Create unenhanced CSV of rows not present in master.
+
+    If `id_field` is None we use the first column name from the ETL
+    "before merge" schema (typically `article_id`). This value is
+    resolved at import-time using the settings/schema helper so the
+    script follows the project schema definitions.
+    """
     if not input_path.exists():
         raise FileNotFoundError(input_path)
 
@@ -96,7 +110,9 @@ def main(argv=None) -> int:
         help="Directory containing per-source master files (default data/master)",
     )
     p.add_argument(
-        "--id-field", default="id", help="ID field name to compare (default 'id')"
+        "--id-field",
+        default=ID_FIELD_DEFAULT,
+        help=f"ID field name to compare (default '{ID_FIELD_DEFAULT}')",
     )
     p.add_argument(
         "--output", help="Optional output path; default: <input>_unenhanced.csv"

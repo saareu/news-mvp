@@ -8,6 +8,12 @@ logging:
 etl:
   behavior:
     download_images: false
+  sources:
+    ynet:
+      strip_tags: true
+      strip_authors: false
+    hayom:
+      force_tz_offset: 3
 ingest:
   # Smaller batch size for dev environment
   batch_size: 100
