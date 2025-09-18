@@ -53,6 +53,7 @@ def validate(path: str) -> int:
     url_re = re.compile(r"^https?://")
     links_ok = True
     if wants_link:
+        # Use .all() to reduce Series to bool for pyright compatibility
         links_ok = df["link"].astype(str).apply(lambda v: bool(url_re.match(v))).all()
     try:
         pd.to_datetime(df["pubDate"], errors="raise")

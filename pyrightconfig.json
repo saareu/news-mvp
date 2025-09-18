@@ -1,0 +1,8 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "ignoreMissingImports": [
+    "selenium",
+    "webdriver_manager"
+  ]
+}

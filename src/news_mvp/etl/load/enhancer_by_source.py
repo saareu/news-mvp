@@ -30,7 +30,25 @@ from typing import Dict, Optional
 import httpx
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+
 from typing import Any
+
+
+# Exported for test_enhancer_selectors.py
+def extract_selector_list(selector_string: str) -> list[str]:
+    """Exported: Parse fallback selector syntax for tests."""
+    return parse_fallback_selectors(selector_string)
+
+
+def try_selector_for_texts(soup: BeautifulSoup, selector: str) -> list[str]:
+    """Exported: Try a selector (css: or attribute) and return texts for tests."""
+    if selector.lower().startswith("css:"):
+        sel = selector[len("css:") :]
+        return texts_from_css(soup, sel)
+    else:
+        els = find_by_attr_or_css(soup, selector)
+        return [el.get_text(strip=True) for el in els if hasattr(el, "get_text")]
+
 
 # Graceful imports for structured logging
 try:

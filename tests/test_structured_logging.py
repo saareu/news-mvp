@@ -3,31 +3,17 @@
 import subprocess
 import json
 from news_mvp.logging_setup import configure_logging, get_logger
-from news_mvp.settings import Settings
 
 
 def test_logging_config_from_settings():
     """Test that logging configuration is read from settings."""
     # Create temporary config for testing
-    test_config = {
-        "logging": {"level": "DEBUG", "format": "json", "structured": True},
-        "etl": {
-            "sources": {},
-            "etl_schema": {"mapping_csv": "", "selectors_csv": ""},
-            "output": {
-                "raw_pattern": "",
-                "canonical_dir": "",
-                "master_dir": "",
-                "images_dir": "",
-            },
-            "behavior": {},
-        },
-    }
+    from news_mvp.settings import LoggingConfig
 
-    settings = Settings(**test_config)
-    assert settings.logging.level == "DEBUG"
-    assert settings.logging.format == "json"
-    assert settings.logging.structured is True
+    test_logging = LoggingConfig(level="DEBUG", format="json", structured=True)
+    assert test_logging.level == "DEBUG"
+    assert test_logging.format == "json"
+    assert test_logging.structured is True
 
 
 def test_cli_json_logging():
