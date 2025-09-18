@@ -13,12 +13,13 @@ models/
 metrics/
 .ipynb_checkpoints/
 
-# Data directory - ignore most but allow specific files
-data/
+# Data directory - specific ignores
+data/raw/
+data/canonical/
+data/enhanced/
+# But allow these:
 !data/master/
 !data/pics/
-# Allow master CSV files
 !data/master/master_*.csv
 !data/master/master_unified.csv
-# Allow all files in pics directory
 !data/pics/**
