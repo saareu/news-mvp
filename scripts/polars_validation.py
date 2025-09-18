@@ -55,9 +55,9 @@ class ValidationResult:
 def validate_required_fields(df: pl.DataFrame, result: ValidationResult) -> None:
     """Validate that all required fields are present and non-null."""
     required_fields = {
-        "ynet": ["article_id", "title", "description", "source", "pub_date"],
-        "haaretz": ["article_id", "title", "description", "source", "pub_date"],
-        "hayom": ["article_id", "title", "description", "source", "pub_date"],
+        "ynet": ["article_id", "title", "source", "pub_date"],
+        "haaretz": ["article_id", "title", "source", "pub_date"],
+        "hayom": ["article_id", "title", "source", "pub_date"],
     }
 
     source_required = required_fields.get(result.source, required_fields["ynet"])
@@ -81,11 +81,11 @@ def validate_data_types(df: pl.DataFrame, result: ValidationResult) -> None:
     # Date validation
     if "pub_date" in df.columns:
         try:
-            # Try to parse dates - should already be validated by master_to_polars.py
+            # Accept String or Date for pub_date
             date_series = df["pub_date"]
-            if date_series.dtype != pl.Date:
+            if date_series.dtype not in [pl.Date, pl.Datetime, pl.Utf8]:
                 result.add_warning(
-                    f"pub_date column is {date_series.dtype}, expected Date"
+                    f"pub_date column is {date_series.dtype}, expected Date, Datetime, or String"
                 )
         except Exception as e:
             result.add_error(f"Date validation error: {e}")

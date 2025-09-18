@@ -61,6 +61,7 @@ def clean_data(df: pl.DataFrame, verbose: bool = True) -> pl.DataFrame:
         "article_id",
         "guid",
         "title",
+        # "description",  # No longer required
         "pub_date",
         "source",
         "language",
@@ -83,6 +84,7 @@ def validate_required_fields(df: pl.DataFrame, verbose: bool = True) -> pl.DataF
         "article_id",
         "guid",
         "title",
+        # "description",  # No longer required
         "pub_date",
         "source",
         "language",
@@ -148,6 +150,50 @@ def load_master_csv_to_polars(
     # Clean data if requested
     if clean:
         df = clean_data(df, verbose=verbose)
+
+    # --- Transform pub_date to datetime, normalize to +3 timezone, and add merging_time column ---
+    import polars as pl
+    import pytz
+    import datetime
+
+    # Convert pub_date to datetime (assume input is string)
+    if "pub_date" in df.columns:
+        # Try to parse pub_date as datetime, localize to UTC if not already tz-aware
+        try:
+            df = df.with_columns(
+                pl.col("pub_date")
+                .str.strptime(pl.Datetime, strict=False)
+                .dt.replace_time_zone("UTC")
+                .dt.convert_time_zone("Asia/Jerusalem")
+                .alias("pub_date")
+            )
+        except Exception as e:
+            print_if_verbose(f"[warning] Could not convert pub_date to datetime: {e}")
+
+    # Normalize fetching_time to Asia/Jerusalem as well
+    if "fetching_time" in df.columns:
+        try:
+            df = df.with_columns(
+                pl.col("fetching_time")
+                .str.strptime(pl.Datetime, strict=False)
+                .dt.replace_time_zone("UTC")
+                .dt.convert_time_zone("Asia/Jerusalem")
+                .alias("fetching_time")
+            )
+        except Exception as e:
+            print_if_verbose(
+                f"[warning] Could not convert fetching_time to datetime: {e}"
+            )
+
+    # Add merging_time column at the end (current time in Asia/Jerusalem)
+    try:
+        import pytz
+
+        tz = pytz.timezone("Asia/Jerusalem")
+        now = datetime.datetime.now(tz)
+        df = df.with_columns(pl.lit(now).alias("merging_time"))
+    except Exception as e:
+        print_if_verbose(f"[warning] Could not add merging_time: {e}")
 
     # Final schema coercion to ensure everything is correct
     df = coerce_to_stage_df(df, Stage.ETL_BEFORE_MERGE, strict=True)
