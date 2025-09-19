@@ -36,10 +36,15 @@ jobs:
         env:
           DEBUG: "1"
         run: |
+          echo "=== ETL DEBUG MODE ENABLED ==="
           python -m news_mvp.cli etl run --source ynet --env prod
+          echo "=== YNET ETL COMPLETED ==="
           python -m news_mvp.cli etl run --source hayom --env prod
+          echo "=== HAYOM ETL COMPLETED ==="
           python -m news_mvp.cli etl run --source haaretz --env prod
+          echo "=== HAARETZ ETL COMPLETED ==="
           python -m news_mvp.cli etl merge --env prod
+          echo "=== MERGE COMPLETED ==="
 
       - name: Debug List data/pics contents
         run: |
@@ -59,8 +64,12 @@ jobs:
           echo "=== DIRECTORY CONTENTS WITH FILE DETAILS ==="
           ls -lR data/pics
           
-          echo "=== GIT STATUS ==="
-          git status
+          echo "=== DETAILED FILE INFO ==="
+          echo "Individual file details with timestamps:"
+          find data/pics -type f -exec ls -la {} \;
+          
+          echo "=== GIT STATUS BEFORE ADD ==="
+          git status --porcelain
           
           echo "=== GIT TRACKED/UNTRACKED FILES IN data/pics ==="
           echo "Tracked files:"
@@ -68,19 +77,37 @@ jobs:
           echo "Untracked files:"
           git ls-files --others --exclude-standard data/pics || echo "No untracked files"
           
-          echo "=== GITIGNORE RULES ==="
-          echo "Current .gitignore content:"
-          cat .gitignore
+          echo "=== CHECKING GITIGNORE PATTERNS ==="
+          echo "Testing if data/pics files are ignored:"
+          find data/pics -type f | head -5 | while read file; do
+            echo "File: $file"
+            git check-ignore "$file" && echo "  -> IGNORED by gitignore" || echo "  -> NOT ignored"
+          done
       
       - name: Check for changes and commit
         run: |
-          # Explicitly add data/pics directory to ensure images are tracked
-          git add data/pics -f
-          # Also add the .gitkeep files in all subdirectories
-          find data/pics -name ".gitkeep" -exec git add {} \;
-          # Add all other changes
-          git add -A
+          echo "=== BEFORE GIT ADD ==="
+          git status --porcelain
           
+          echo "=== EXPLICITLY ADDING data/pics ==="
+          # Explicitly add data/pics directory to ensure images are tracked
+          git add data/pics -f -v
+          
+          echo "=== ADDING .gitkeep files ==="
+          # Also add the .gitkeep files in all subdirectories
+          find data/pics -name ".gitkeep" -exec git add -v {} \;
+          
+          echo "=== ADDING ALL OTHER CHANGES ==="
+          # Add all other changes
+          git add -A -v
+          
+          echo "=== AFTER GIT ADD ==="
+          git status --porcelain
+          
+          echo "=== GIT DIFF --cached (what will be committed) ==="
+          git diff --cached --name-only
+          
+          echo "=== COMMITTING ==="
           git commit -m "feat: Update master CSV files and images
 
           - Updated master CSV files with latest news data  
@@ -89,4 +116,6 @@ jobs:
 
           Sources: ynet, hayom, haaretz
           " || echo "No changes to commit"
+          
+          echo "=== PUSHING ==="
           git push -f
