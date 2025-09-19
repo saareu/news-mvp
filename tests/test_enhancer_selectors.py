@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 
-from src.news_mvp.etl.load.enhancer_by_source import (
+from news_mvp.etl.load.enhancer_by_source import (
     extract_selector_list,
     try_selector_for_texts,
 )
