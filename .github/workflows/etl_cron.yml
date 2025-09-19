@@ -39,7 +39,7 @@ jobs:
           python -m news_mvp.cli etl run --source haaretz --env prod
           python -m news_mvp.cli etl merge --env prod
 
-      - name: Debug: List data/pics contents
+      - name: Debug List data/pics contents
         run: |
           echo "Listing data/pics directory contents:"
           ls -lR data/pics || true
