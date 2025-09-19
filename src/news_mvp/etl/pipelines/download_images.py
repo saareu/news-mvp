@@ -1,7 +1,7 @@
 """Download images and produce a master CSV for any source.
 
 Reads an enhanced CSV (produced by the enhancer), sanitizes HTML in text fields,
-downloads article images into `pic/`, fills missing `image_Credit` with the
+downloads article images into `data/pics/YYYYMMDD/source/`, fills missing `image_Credit` with the
 source name and writes a master CSV. Designed to be CI-friendly for GitHub
 Actions: deterministic filenames, short timeouts, and limited retries.
 
@@ -250,9 +250,17 @@ def process_csv(
     # Force output headers to match canonical schema
     out_fieldnames: List[str] = schema_fieldnames(schema_stage)
 
-    # ensure per-source pics directory exists (images will be stored in data/pics/{source})
-    pic_dir_src = os.path.join(PIC_DIR, source_name)
+    # Create date-based directory structure (images will be stored in data/pics/YYYYMMDD/source)
+    current_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    pic_dir_date = os.path.join(PIC_DIR, current_date)
+    pic_dir_src = os.path.join(pic_dir_date, source_name)
     os.makedirs(pic_dir_src, exist_ok=True)
+
+    # Debug logging for CI troubleshooting (only in debug mode)
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        print("DEBUG: Created date-based directory structure:")
+        print(f"DEBUG: Date directory: {pic_dir_date}")
+        print(f"DEBUG: Source directory: {pic_dir_src}")
 
     # Resolve canonical fieldnames from schema/settings
     required = get_schema_required(schema_stage)
@@ -321,7 +329,7 @@ def process_csv(
             if os.path.exists(dest):
                 # Image already exists, use it without downloading
                 # We store only the filename in `image` (no path), so the
-                # image field is recoverable by combining with data/pics/{source}
+                # image field is recoverable by combining with data/pics/YYYYMMDD/source
                 # store into canonical image and image_name fields
                 row[k_image] = os.path.basename(dest)
                 row[k_image_name] = imageName_remote or ""
