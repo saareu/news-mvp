@@ -19,7 +19,6 @@ data/canonical/
 data/enhanced/
 # But allow these:
 !data/master/
-!data/pics/
 !data/master/master_*.csv
 !data/master/master_unified.csv
 !data/pics/**
