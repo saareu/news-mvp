@@ -64,6 +64,7 @@ def run_cmd(
         text=True,
         timeout=timeout,
         cwd=cwd,
+        env=os.environ.copy(),  # Ensure child processes inherit environment variables
     )
 
 
