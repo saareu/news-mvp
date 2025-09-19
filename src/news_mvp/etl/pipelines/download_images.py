@@ -70,11 +70,21 @@ def get_relative_path_from_repo_root(absolute_path: str) -> str:
 
 def ensure_pic_dir() -> None:
     os.makedirs(PIC_DIR, exist_ok=True)
+
+    # Add .gitkeep to main pics directory to ensure it's tracked even if empty
+    gitkeep_path = os.path.join(PIC_DIR, ".gitkeep")
+    if not os.path.exists(gitkeep_path):
+        with open(gitkeep_path, "w") as f:
+            f.write(
+                "# This file ensures Git tracks this directory even if it's empty\n"
+            )
+
     # Debug logging for CI troubleshooting (only in debug mode)
     if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
         print(f"DEBUG: PIC_DIR resolved to: {PIC_DIR}")
         print(f"DEBUG: Repository root: {REPO_ROOT}")
         print(f"DEBUG: Current working directory: {os.getcwd()}")
+        print("DEBUG: Created .gitkeep file in main pics directory")
 
 
 def sanitize_html(value: Optional[str]) -> str:
@@ -256,11 +266,30 @@ def process_csv(
     pic_dir_src = os.path.join(pic_dir_date, source_name)
     os.makedirs(pic_dir_src, exist_ok=True)
 
+    # Create .gitkeep files to ensure directories are tracked by Git even if empty
+    gitkeep_date = os.path.join(pic_dir_date, ".gitkeep")
+    gitkeep_src = os.path.join(pic_dir_src, ".gitkeep")
+
+    # Create .gitkeep in the date directory
+    if not os.path.exists(gitkeep_date):
+        with open(gitkeep_date, "w") as f:
+            f.write(
+                "# This file ensures Git tracks this directory even if it's empty\n"
+            )
+
+    # Create .gitkeep in the source directory
+    if not os.path.exists(gitkeep_src):
+        with open(gitkeep_src, "w") as f:
+            f.write(
+                "# This file ensures Git tracks this directory even if it's empty\n"
+            )
+
     # Debug logging for CI troubleshooting (only in debug mode)
     if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
         print("DEBUG: Created date-based directory structure:")
         print(f"DEBUG: Date directory: {pic_dir_date}")
         print(f"DEBUG: Source directory: {pic_dir_src}")
+        print("DEBUG: Created .gitkeep files to ensure directories are tracked by Git")
 
     # Resolve canonical fieldnames from schema/settings
     required = get_schema_required(schema_stage)

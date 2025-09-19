@@ -41,18 +41,44 @@ jobs:
 
       - name: Debug List data/pics contents
         run: |
-          echo "Listing all data/pics/{date}/{source} directories and files:"
-          find data/pics -type d
-          find data/pics -type f
-          ls -lR data/pics || true
-          echo "Listing data/pics/ynet, hayom, haaretz subdirs:"
-          ls -l data/pics/ynet || true
-          ls -l data/pics/hayom || true
-          ls -l data/pics/haaretz || true
+          echo "=== DEBUGGING IMAGE DIRECTORIES ==="
+          echo "Listing all directories under data/pics/ (including date-based dirs):"
+          mkdir -p data/pics # Ensure it exists
+          find data/pics -type d | sort
+          
+          echo "=== DEBUGGING IMAGE FILES ==="
+          echo "Listing all image files (should show date-based paths):"
+          find data/pics -type f | grep -v ".gitkeep" || echo "NO IMAGE FILES FOUND!"
+          
+          echo "=== IMAGE COUNTS ==="
+          echo "Total image files:" 
+          find data/pics -type f | grep -v ".gitkeep" | wc -l
+          
+          echo "=== DIRECTORY CONTENTS WITH FILE DETAILS ==="
+          ls -lR data/pics
+          
+          echo "=== GIT STATUS ==="
+          git status
+          
+          echo "=== GIT TRACKED/UNTRACKED FILES IN data/pics ==="
+          echo "Tracked files:"
+          git ls-files data/pics || echo "No tracked files"
+          echo "Untracked files:"
+          git ls-files --others --exclude-standard data/pics || echo "No untracked files"
+          
+          echo "=== GITIGNORE RULES ==="
+          echo "Current .gitignore content:"
+          cat .gitignore
       
       - name: Check for changes and commit
         run: |
+          # Explicitly add data/pics directory to ensure images are tracked
+          git add data/pics -f
+          # Also add the .gitkeep files in all subdirectories
+          find data/pics -name ".gitkeep" -exec git add {} \;
+          # Add all other changes
           git add -A
+          
           git commit -m "feat: Update master CSV files and images
 
           - Updated master CSV files with latest news data  
