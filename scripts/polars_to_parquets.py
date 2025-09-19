@@ -1,47 +1,38 @@
 #!/usr/bin/env python3
 """
-Convert validated master CSV to Parquet, organized as data/parquet/{date}/{source}/master.parquet
+Convert unified master_news.csv to Parquet files per date/source:
+    data/parquet/{date}/{source}/master.parquet
 
 Usage:
-    python polars_to_parquets.py --input data/master/master_ynet.csv --source ynet [--date 20250919]
-
-- Loads and validates the CSV using polars_validation.py logic
-- Writes the DataFrame to data/parquet/{date}/{source}/master.parquet
+    python polars_to_parquets.py --input data/master/master_news.csv
 """
 import argparse
 import sys
 from pathlib import Path
 import datetime
 
-# Add scripts and src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from polars_validation import load_and_validate_master_csv
+import polars as pl
 
 
-def safe_strftime(val, fmt="%Y-%m-%d"):
+def extract_date(val):
+    # Accepts string or datetime, returns YYYYMMDD or None
     if isinstance(val, (datetime.datetime, datetime.date)):
-        return val.strftime(fmt)
-    return str(val)  # or return "" if you want to skip non-dates
+        return val.strftime("%Y%m%d")
+    if isinstance(val, str):
+        if len(val) >= 10:
+            return val[:10].replace("-", "")
+    return None
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert validated master CSV to Parquet, organized by date/source."
+        description="Split master_news.csv to Parquet files per date/source."
     )
-    parser.add_argument("--input", required=True, help="Path to master CSV file")
-    parser.add_argument(
-        "--source",
-        required=True,
-        choices=["ynet", "haaretz", "hayom"],
-        help="Source name",
-    )
-    parser.add_argument(
-        "--date",
-        required=False,
-        help="Date in YYYYMMDD format (default: min pub_date in data)",
-    )
+    parser.add_argument("--input", required=True, help="Path to master_news.csv")
     parser.add_argument(
         "--strict", action="store_true", help="Treat warnings as errors in validation"
     )
@@ -50,7 +41,7 @@ def main():
     # Load and validate
     df, result = load_and_validate_master_csv(
         input_path=args.input,
-        source=args.source,
+        source=None,  # Accept all sources
         strict=args.strict,
         verbose=True,
     )
@@ -58,44 +49,27 @@ def main():
         print("\n❌ Data is not valid, aborting Parquet export.")
         sys.exit(1)
 
-    # Determine date for output path
-    if args.date:
-        out_date = args.date
-    else:
-        # Try to get min pub_date from DataFrame
-        out_date = "unknown"
-        if "pub_date" in df.columns:
-            min_date = df["pub_date"].min()
-            # Handle polars Date/Datetime, pandas Timestamp, datetime.date, str, etc.
-            try:
+    if "pub_date" not in df.columns or "source" not in df.columns:
+        print("❌ master_news.csv must have 'pub_date' and 'source' columns.")
+        sys.exit(1)
 
-                if isinstance(min_date, str):
-                    # Try to parse as YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS
-                    if len(min_date) >= 10:
-                        out_date = min_date[:10].replace("-", "")
-                elif isinstance(min_date, (datetime.datetime, datetime.date)):
-                    out_date = min_date.strftime("%Y%m%d")
-                elif hasattr(min_date, "strftime"):
-                    out_date = min_date.strftime("%Y%m%d")
-                elif isinstance(min_date, (int, float)):
-                    # Could be a timestamp (unlikely for pub_date)
-                    out_date = str(int(min_date))
-                else:
-                    # Fallback: convert to string and extract date-like part if possible
-                    min_date_str = str(min_date)
-                    if len(min_date_str) >= 8 and min_date_str[:8].isdigit():
-                        out_date = min_date_str[:8]
-            except Exception:
-                pass
+    # Add a YYYYMMDD column for grouping
+    df = df.with_columns(
+        pl.col("pub_date").map_elements(extract_date).alias("date_str")
+    )
 
-    # Output directory
-    out_dir = Path("data/parquet") / out_date / args.source
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "master.parquet"
-
-    print(f"[write] Writing Parquet to: {out_path}")
-    df.write_parquet(str(out_path))
-    print(f"✅ Done: {out_path}")
+    # Group by date and source, write each group
+    for group in df.partition_by(["date_str", "source"]):
+        date = group["date_str"][0]
+        source = group["source"][0]
+        if not date or not source:
+            continue
+        out_dir = Path("data/parquet") / date / source
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "master.parquet"
+        print(f"[write] {len(group)} rows -> {out_path}")
+        group.write_parquet(str(out_path))
+    print("✅ Done.")
 
 
 if __name__ == "__main__":
