@@ -21,4 +21,5 @@ data/enhanced/
 !data/master/
 !data/master/master_*.csv
 !data/master/master_unified.csv
-!data/pics/**
+!data/pics/
+!data/pics/**/*
