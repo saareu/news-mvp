@@ -2,7 +2,13 @@
 
 Reads an enhanced CSV (produced by the enhancer), sanitizes HTML in text fields,
 downloads article images into `data/pics/YYYYMMDD/source/`, fills missing `image_Credit` with the
-source name and writes a master CSV. Designed to be CI-friendly for GitHub
+source name and writes a master CSV. Desig    # Debug logging for CI troubleshooting (only in debug mode)
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        print("DEBUG: Created date-based directory structure:")
+        print(f"DEBUG: Date directory: {pic_dir_date}")
+        print(f"DEBUG: Source directory: {pic_dir_src}")
+        print(f"DEBUG: Created .gitkeep files to ensure directories are tracked by Git")
+        print(f"DEBUG: Processing {len(rows)} rows for source: {source_name}") be CI-friendly for GitHub
 Actions: deterministic filenames, short timeouts, and limited retries.
 
 Usage (from repo root):
@@ -159,14 +165,31 @@ def find_image_url(img_val: Optional[str]) -> Optional[str]:
     normalized absolute URL or None.
     """
     if not img_val:
+        # Debug logging for empty image values
+        if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+            print("DEBUG: find_image_url: img_val is None/empty")
         return None
     img = str(img_val).strip()
     if not img:
+        # Debug logging for empty string values
+        if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+            print("DEBUG: find_image_url: img_val is empty string after strip")
         return None
+
+    # Debug logging for URL processing
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        print(f"DEBUG: find_image_url: processing '{img}'")
+
     if img.startswith("//"):
         img = "https:" + img
     if img.startswith("http://") or img.startswith("https://"):
+        if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+            print(f"DEBUG: find_image_url: valid URL found '{img}'")
         return img
+
+    # Debug logging for invalid URLs
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        print(f"DEBUG: find_image_url: invalid URL rejected '{img}'")
     return None
 
 
@@ -329,6 +352,11 @@ def process_csv(
         # find image URL from canonical image column (strict)
         img_val = row.get(k_image)
         img_url = find_image_url(img_val)
+
+        # Debug logging for image processing
+        if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+            print(f"DEBUG: Row {idx}: img_val={img_val}, img_url={img_url}")
+
         # preserve the original remote filename (without ext) in imageNameRemote
         imageName_remote = ""
         if img_url:
@@ -386,6 +414,14 @@ def process_csv(
 
     # At this point rows have pending download info in _pending_* if they need download.
     # If sync mode (default) perform downloads now; async mode is handled by caller.
+
+    # Debug logging for final stats
+    if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+        pending_downloads = len([r for r in rows if r.get("_pending_img_url")])
+        print(
+            f"DEBUG: Final processing stats - rows: {stats['rows']}, images_missing: {stats['images_missing']}, pending_downloads: {pending_downloads}"
+        )
+
     return rows, out_fieldnames, stats
 
 
