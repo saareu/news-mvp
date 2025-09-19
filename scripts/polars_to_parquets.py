@@ -73,11 +73,18 @@ def main():
                     # Try to parse as YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS
                     if len(min_date) >= 10:
                         out_date = min_date[:10].replace("-", "")
+                elif isinstance(min_date, (datetime.datetime, datetime.date)):
+                    out_date = min_date.strftime("%Y%m%d")
                 elif hasattr(min_date, "strftime"):
                     out_date = min_date.strftime("%Y%m%d")
                 elif isinstance(min_date, (int, float)):
                     # Could be a timestamp (unlikely for pub_date)
                     out_date = str(int(min_date))
+                else:
+                    # Fallback: convert to string and extract date-like part if possible
+                    min_date_str = str(min_date)
+                    if len(min_date_str) >= 8 and min_date_str[:8].isdigit():
+                        out_date = min_date_str[:8]
             except Exception:
                 pass
 
