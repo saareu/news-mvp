@@ -59,10 +59,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     LOG.info("Starting Selenium Chrome (headless=%s)", args.headless)
     try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from webdriver_manager.chrome import ChromeDriverManager
+        from selenium import webdriver  # type: ignore[import-untyped]
+        from selenium.webdriver.chrome.options import Options  # type: ignore[import-untyped]
+        from selenium.webdriver.chrome.service import Service  # type: ignore[import-untyped]
+        from webdriver_manager.chrome import ChromeDriverManager  # type: ignore[import-untyped]
     except Exception as e:  # pragma: no cover - dependency error
         LOG.error("Selenium or webdriver-manager not installed: %s", e)
         LOG.error("Install with: pip install selenium webdriver-manager")

@@ -48,13 +48,15 @@ def validate(path: str) -> int:
         )
         return 2
 
-    not_null_ok = all(df[c].notna().all() for c in required)
+    not_null_ok = all(bool(df[c].notna().all()) for c in required)
     unique_ok = df["id"].nunique() == total
     url_re = re.compile(r"^https?://")
     links_ok = True
     if wants_link:
         # Use .all() to reduce Series to bool for pyright compatibility
-        links_ok = df["link"].astype(str).apply(lambda v: bool(url_re.match(v))).all()
+        links_ok = bool(
+            df["link"].astype(str).apply(lambda v: bool(url_re.match(v))).all()
+        )
     try:
         pd.to_datetime(df["pubDate"], errors="raise")
         date_ok = True
