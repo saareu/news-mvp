@@ -6,13 +6,11 @@ __pycache__/
 dist/
 build/
 .eggs/
-.data/
 artifacts/
 logs/
 models/
 metrics/
 .ipynb_checkpoints/
-
 # Data directory - specific ignores
 data/raw/
 data/canonical/
