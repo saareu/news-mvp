@@ -11,12 +11,19 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+import datetime
 
 # Add scripts and src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from polars_validation import load_and_validate_master_csv
+
+
+def safe_strftime(val, fmt="%Y-%m-%d"):
+    if isinstance(val, (datetime.datetime, datetime.date)):
+        return val.strftime(fmt)
+    return str(val)  # or return "" if you want to skip non-dates
 
 
 def main():

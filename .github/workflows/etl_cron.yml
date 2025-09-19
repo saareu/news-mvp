@@ -41,7 +41,9 @@ jobs:
 
       - name: Debug List data/pics contents
         run: |
-          echo "Listing data/pics directory contents:"
+          echo "Listing all data/pics/{date}/{source} directories and files:"
+          find data/pics -type d
+          find data/pics -type f
           ls -lR data/pics || true
           echo "Listing data/pics/ynet, hayom, haaretz subdirs:"
           ls -l data/pics/ynet || true
@@ -59,4 +61,4 @@ jobs:
 
           Sources: ynet, hayom, haaretz
           " || echo "No changes to commit"
-          git push
+          git push -f
