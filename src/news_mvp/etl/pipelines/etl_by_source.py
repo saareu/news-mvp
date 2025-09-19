@@ -21,6 +21,7 @@ for israel hayom, use:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -48,7 +49,6 @@ def run_cmd(
     log.debug("Running command", args=args, cwd=cwd)
 
     # Debug: log environment variables
-    import os
 
     env_vars = {
         k: v
@@ -97,7 +97,6 @@ def orchestrate(
     # Load mapping path from config
     from news_mvp.settings import Settings
     from news_mvp.paths import Paths
-    import os
 
     env = os.environ.get("NEWS_MVP_CONFIG_ENV", "dev")
     cfg_path = f"configs/{env}.yaml"
@@ -261,6 +260,13 @@ def orchestrate(
                 else:
                     print(f"retrying step (attempt {attempt+1}/{per_step_retries})...")
                     continue
+
+            # In debug mode, surface child logs to aid troubleshooting (stdout/stderr)
+            if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+                if proc.stdout:
+                    print(proc.stdout)
+                if proc.stderr:
+                    print(proc.stderr, file=sys.stderr)
 
             out_path = capture_output_path(proc)
             if out_path:

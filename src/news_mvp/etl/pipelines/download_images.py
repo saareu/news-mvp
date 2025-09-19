@@ -36,6 +36,7 @@ from bs4 import BeautifulSoup
 
 # Module-level schema stage used across functions (avoid passing string names)
 from news_mvp.schemas import Stage, schema_fieldnames
+from news_mvp.paths import Paths
 from news_mvp.settings import (
     get_runtime_csv_encoding,
     get_schema_required,
@@ -55,13 +56,10 @@ __all__ = ["schema_stage"]
 # Module-level schema stage used across functions (avoid passing string names)
 schema_stage = Stage.ETL_BEFORE_MERGE
 
-# Get the repository root directory relative to this script's location
-# This ensures the path works correctly in GitHub Actions and other CI environments
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
-)
-PIC_DIR = os.path.join(REPO_ROOT, "data", "pics")
+# Resolve repository root and data/pics directory using project Paths helper
+# This ensures consistent locations locally and in CI (GitHub Actions)
+REPO_ROOT = str(Paths.root().resolve())
+PIC_DIR = str(Paths.pics().resolve())
 DEFAULT_TIMEOUT = 10.0  # seconds
 MAX_RETRIES = 2
 
@@ -71,7 +69,10 @@ def get_relative_path_from_repo_root(absolute_path: str) -> str:
 
     This ensures consistent path handling in GitHub Actions and other CI environments.
     """
-    return os.path.relpath(absolute_path, REPO_ROOT).replace("\\", "/")
+    # Be robust to callers passing relative paths
+    abs_path = os.path.abspath(absolute_path)
+    root = os.path.abspath(REPO_ROOT)
+    return os.path.relpath(abs_path, root).replace("\\", "/")
 
 
 def ensure_pic_dir() -> None:
