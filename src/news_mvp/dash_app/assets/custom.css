@@ -1,0 +1,73 @@
+/* Custom CSS for Dash app to fix rendering issues */
+
+/* Fix for density strip graph container */
+#density_strip {
+    height: 120px !important;
+    max-height: 120px !important;
+    overflow: hidden !important;
+}
+
+/* Styling for burst elements */
+.burst-overlay {
+    position: absolute;
+    background-color: rgba(255, 165, 0, 0.3);
+    border: 1px dashed orange;
+    height: 100%;
+    z-index: 10;
+    transition: opacity 0.2s ease;
+}
+
+.burst-marker {
+    position: absolute;
+    top: -12px;
+    cursor: pointer;
+    background-color: transparent;
+    border: none;
+    font-size: 16px;
+    z-index: 20;
+    transition: transform 0.1s ease;
+    text-shadow: 0px 0px 3px rgba(255, 255, 255, 0.7);
+}
+
+.burst-marker:hover {
+    transform: scale(1.2);
+}
+
+.burst-overlay:hover {
+    opacity: 0.8;
+}
+
+/* Prevent plotly tester element from causing layout shifts */
+#js-plotly-tester {
+    visibility: hidden !important;
+    position: fixed !important;
+    width: 0px !important;
+    height: 0px !important;
+    overflow: hidden !important;
+}
+
+/* Fix for SVG elements that might cause expansion */
+.main-svg {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+/* Set a maximum height for all chart containers */
+.js-plotly-plot, .plot-container {
+    max-height: inherit !important;
+}
+
+/* Improve axis label appearance */
+.xtick text, .ytick text {
+    font-size: 10px !important;
+}
+
+/* Ensure grid lines don't cause shifts */
+.gridlayer path {
+    shape-rendering: crispEdges;
+}
+
+/* Fix for tooltip rendering */
+.hover-info {
+    box-shadow: none !important;
+}
