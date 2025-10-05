@@ -14,6 +14,11 @@ src/news_mvp.egg-info/dependency_links.txt
 src/news_mvp.egg-info/entry_points.txt
 src/news_mvp.egg-info/requires.txt
 src/news_mvp.egg-info/top_level.txt
+src/news_mvp/dash_app/__init__.py
+src/news_mvp/dash_app/app.py
+src/news_mvp/dash_app/callbacks.py
+src/news_mvp/dash_app/data.py
+src/news_mvp/dash_app/layout.py
 src/news_mvp/etl/__init__.py
 src/news_mvp/etl/api.py
 src/news_mvp/etl/config.py
