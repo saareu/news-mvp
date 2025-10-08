@@ -1,5 +1,5 @@
 ﻿selector,ynet,haaretz,hayom
 author,"[css:div.authors a],[css:.authors],[span class=""auth-row""],[property=""vr:author""@content]",None,None
 category,"[aria-label=Breadcrumb;list=ul;item=a;include_parent=FALSE],[property=""sub-channel-name""@content]","[aria=article-breadcrumbs-header;list=ol;item=a;include_parent=FALSE],[css:h3]",None
-description,"[name=""description""@content]","[property=""og:description""@content]",None
+description,"[name=""description""@content]","[property=""og:description""@content]","[property=""og:description""@content]"
 image_credit,"[property=""vr:image_credit""@content]",None,None
